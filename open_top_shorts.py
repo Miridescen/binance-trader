@@ -128,13 +128,17 @@ def save_close_log(positions: list, now: datetime):
             "leverage":      leverage,
         }
 
-        # 找最近一条同币种且未平仓的开仓行
+        # 找最近一条同币种且未平仓的开仓行（open_time 最大的那条）
+        candidates = [
+            (i, row) for i, row in enumerate(rows)
+            if row["symbol"] == sym and not row.get("close_time")
+        ]
         matched = False
-        for row in reversed(rows):
-            if row["symbol"] == sym and not row.get("close_time"):
-                row.update(close_data)
-                matched = True
-                break
+        if candidates:
+            # 取 open_time 最新的一条，忽略更早的孤立未平仓行
+            best_i, best_row = max(candidates, key=lambda x: x[1].get("open_time", ""))
+            best_row.update(close_data)
+            matched = True
 
         if not matched:
             rows.append({
