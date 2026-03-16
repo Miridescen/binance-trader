@@ -6,7 +6,9 @@
   未成交则每 60 秒换价重下，最多 10 次，超过后改市价单
 """
 
+import csv
 import math
+import os
 import time
 import logging
 from datetime import datetime, timedelta
@@ -22,6 +24,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+OPEN_LOG_FILE        = os.path.join(os.path.dirname(__file__), "open_log.csv")
+OPEN_LOG_FIELDS      = ["time", "symbol", "side", "change_pct", "market_cap_usd", "circulating_supply"]
 
 LEVERAGE             = 3
 MARGIN_PER_POS       = 10
@@ -241,8 +246,20 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
             time.sleep(0.15)
 
 
+def save_open_csv(rows: list, now: datetime):
+    """将开单观察数据追加写入 open_log.csv"""
+    write_header = not os.path.exists(OPEN_LOG_FILE) or os.path.getsize(OPEN_LOG_FILE) == 0
+    with open(OPEN_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=OPEN_LOG_FIELDS)
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({**row, "time": now.strftime("%Y-%m-%d %H:%M:%S")})
+    log.info(f"开单观察数据已写入 {OPEN_LOG_FILE}（{len(rows)} 条）")
+
+
 def print_open_summary(top_gainers: list, top_losers: list):
-    """开单完成后输出标的行情观察表（市值、流通量、24h涨跌）"""
+    """开单完成后输出标的行情观察表（市值、流通量、24h涨跌），并保存 CSV"""
     all_tickers = top_gainers + top_losers
     symbols     = [t["symbol"] for t in all_tickers]
 
@@ -267,26 +284,34 @@ def print_open_summary(top_gainers: list, top_losers: list):
     )
     print(divider)
 
+    csv_rows = []
     for label, tickers, side_str in [
         ("空单（涨幅榜）", top_gainers, "空"),
         ("多单（跌幅榜）", top_losers,  "多"),
     ]:
         print(f"  {label}")
         for t in tickers:
-            sym     = t["symbol"]
-            pct     = float(t["priceChangePercent"])
-            md      = market_data.get(sym, {})
-            mc_str  = fmt_large(md.get("market_cap", 0))
-            cs_str  = fmt_large(md.get("circulating_supply", 0))
-            pct_str = f"{pct:>+.2f}%"
+            sym  = t["symbol"]
+            pct  = float(t["priceChangePercent"])
+            md   = market_data.get(sym, {})
+            mc   = md.get("market_cap", 0)
+            cs   = md.get("circulating_supply", 0)
             print(
                 f"| {sym:<{C['symbol']}} | {side_str:<{C['side']}} "
-                f"| {pct_str:>{C['pct']}} | {mc_str:>{C['mcap']}} "
-                f"| {cs_str:>{C['supply']}} |"
+                f"| {pct:>+{C['pct']}.2f}% | {fmt_large(mc):>{C['mcap']}} "
+                f"| {fmt_large(cs):>{C['supply']}} |"
             )
+            csv_rows.append({
+                "symbol":              sym,
+                "side":                side_str,
+                "change_pct":          f"{pct:.4f}",
+                "market_cap_usd":      f"{mc:.0f}" if mc else "",
+                "circulating_supply":  f"{cs:.4f}" if cs else "",
+            })
         print(divider)
 
     print(header)
+    save_open_csv(csv_rows, datetime.now())
 
 
 def run_open():
