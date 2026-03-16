@@ -104,3 +104,45 @@ def get_ticker_24h(valid_symbols: set, min_volume: float) -> list:
 
 def is_hedge_mode() -> bool:
     return auth_get("/fapi/v1/positionSide/dual").get("dualSidePosition", False)
+
+
+# ── CoinGecko 行情补充 ─────────────────────────────────
+
+COINGECKO_URL = "https://api.coingecko.com/api/v3"
+
+def get_coin_market_data(usdt_symbols: list) -> dict:
+    """
+    从 CoinGecko 获取指定合约币种的市值和流通量
+    输入: ['BTCUSDT', 'ETHUSDT', ...]
+    返回: {symbol: {'market_cap': float, 'circulating_supply': float}}
+    未查到的币种不在返回值中
+    """
+    remaining = {s[:-4].lower(): s for s in usdt_symbols}   # {base_lower: full_symbol}
+    result = {}
+
+    for page in range(1, 5):   # 最多覆盖前 1000 名
+        try:
+            resp = requests.get(
+                f"{COINGECKO_URL}/coins/markets",
+                params={"vs_currency": "usd", "per_page": 250, "page": page,
+                        "order": "market_cap_desc"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+        except Exception:
+            break
+
+        for coin in resp.json():
+            sym = coin["symbol"].lower()
+            if sym in remaining:
+                full = remaining.pop(sym)
+                result[full] = {
+                    "market_cap":         coin.get("market_cap") or 0,
+                    "circulating_supply": coin.get("circulating_supply") or 0,
+                }
+
+        if not remaining:
+            break
+        time.sleep(0.5)   # 避免触发 CoinGecko 频率限制
+
+    return result

@@ -31,7 +31,7 @@ def get_account_balance() -> float:
     data = auth_get("/fapi/v2/account")
     for asset in data["assets"]:
         if asset["asset"] == "USDT":
-            return float(asset["walletBalance"])
+            return float(asset["marginBalance"])
     return 0.0
 
 

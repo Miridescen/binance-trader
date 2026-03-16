@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from binance_client import (
     auth_get, auth_post, auth_delete,
     get_exchange_info, get_ticker_24h, get_mark_price, is_hedge_mode,
+    get_coin_market_data,
 )
 
 logging.basicConfig(
@@ -30,6 +31,19 @@ ORDER_CHECK_INTERVAL = 60
 MAX_RETRIES          = 10
 CLOSE_HOUR, CLOSE_MINUTE = 8, 50
 OPEN_HOUR,  OPEN_MINUTE  = 9, 0
+
+
+# ── 格式工具 ───────────────────────────────────────────
+
+def fmt_large(n: float) -> str:
+    """将大数字格式化为 B / M 单位"""
+    if n >= 1e9:
+        return f"{n / 1e9:.2f}B"
+    if n >= 1e6:
+        return f"{n / 1e6:.2f}M"
+    if n > 0:
+        return f"{n:.0f}"
+    return "N/A"
 
 
 # ── 精度工具 ───────────────────────────────────────────
@@ -227,6 +241,54 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
             time.sleep(0.15)
 
 
+def print_open_summary(top_gainers: list, top_losers: list):
+    """开单完成后输出标的行情观察表（市值、流通量、24h涨跌）"""
+    all_tickers = top_gainers + top_losers
+    symbols     = [t["symbol"] for t in all_tickers]
+
+    log.info("正在从 CoinGecko 获取市值/流通量数据...")
+    try:
+        market_data = get_coin_market_data(symbols)
+    except Exception as e:
+        log.warning(f"CoinGecko 数据获取失败，跳过观察表：{e}")
+        return
+
+    C = {"symbol": 14, "side": 4, "pct": 10, "mcap": 13, "supply": 18}
+    divider = "-" * (sum(C.values()) + len(C) * 3 + 1)
+    header  = "=" * len(divider)
+
+    print(header)
+    print("  开单标的行情观察")
+    print(divider)
+    print(
+        f"| {'交易对':<{C['symbol']}} | {'方向':<{C['side']}} "
+        f"| {'24h涨跌':>{C['pct']}} | {'市值(USD)':>{C['mcap']}} "
+        f"| {'流通量':>{C['supply']}} |"
+    )
+    print(divider)
+
+    for label, tickers, side_str in [
+        ("空单（涨幅榜）", top_gainers, "空"),
+        ("多单（跌幅榜）", top_losers,  "多"),
+    ]:
+        print(f"  {label}")
+        for t in tickers:
+            sym     = t["symbol"]
+            pct     = float(t["priceChangePercent"])
+            md      = market_data.get(sym, {})
+            mc_str  = fmt_large(md.get("market_cap", 0))
+            cs_str  = fmt_large(md.get("circulating_supply", 0))
+            pct_str = f"{pct:>+.2f}%"
+            print(
+                f"| {sym:<{C['symbol']}} | {side_str:<{C['side']}} "
+                f"| {pct_str:>{C['pct']}} | {mc_str:>{C['mcap']}} "
+                f"| {cs_str:>{C['supply']}} |"
+            )
+        print(divider)
+
+    print(header)
+
+
 def run_open():
     log.info("=" * 50)
     log.info(f"【开单开始】杠杆 {LEVERAGE}x  保证金 {MARGIN_PER_POS} USDT  名义 {MARGIN_PER_POS * LEVERAGE} USDT")
@@ -243,6 +305,7 @@ def run_open():
     run_batch_orders("空单（涨幅榜）", top_gainers, "SELL", symbol_info, hedge)
     run_batch_orders("多单（跌幅榜）", top_losers,  "BUY",  symbol_info, hedge)
 
+    print_open_summary(top_gainers, top_losers)
     log.info("【开单全部完成】")
 
 
