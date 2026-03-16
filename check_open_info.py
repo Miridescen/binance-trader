@@ -9,7 +9,10 @@ from datetime import datetime
 from binance_client import auth_get, get_ticker_24h, get_exchange_info, get_coin_market_data
 
 LOG_FILE   = os.path.join(os.path.dirname(__file__), "open_log.csv")
-LOG_FIELDS = ["time", "symbol", "side", "change_pct", "market_cap_usd", "circulating_supply"]
+LOG_FIELDS = ["open_time", "close_time", "symbol", "side",
+              "change_pct", "market_cap_usd", "circulating_supply",
+              "entry_price", "close_price", "position_amt",
+              "unrealized_pnl", "roe_pct", "leverage"]
 
 
 def fmt_large(n: float) -> str:
@@ -60,8 +63,15 @@ def main():
     )
     print(divider)
 
+    # 按 24h 涨跌幅降序排列（币安 /fapi/v1/ticker/24hr 数据）
+    positions_sorted = sorted(
+        positions,
+        key=lambda p: float(ticker_map.get(p["symbol"], {}).get("priceChangePercent", 0)),
+        reverse=True,
+    )
+
     csv_rows = []
-    for p in sorted(positions, key=lambda x: float(x["positionAmt"]), reverse=True):
+    for p in positions_sorted:
         sym      = p["symbol"]
         amt      = float(p["positionAmt"])
         side_str = "多" if amt > 0 else "空"
@@ -77,24 +87,34 @@ def main():
             f"| {fmt_large(cs):>{C['supply']}} |"
         )
         csv_rows.append({
-            "time":                now.strftime("%Y-%m-%d %H:%M:%S"),
-            "symbol":              sym,
-            "side":                side_str,
-            "change_pct":          f"{pct:.4f}",
-            "market_cap_usd":      f"{mc:.0f}" if mc else "",
-            "circulating_supply":  f"{cs:.4f}" if cs else "",
+            "open_time":          now.strftime("%Y-%m-%d %H:%M:%S"),
+            "close_time":         "",
+            "symbol":             sym,
+            "side":               side_str,
+            "change_pct":         f"{pct:.4f}",
+            "market_cap_usd":     f"{mc:.0f}" if mc else "",
+            "circulating_supply": f"{cs:.4f}" if cs else "",
+            "entry_price":        "",
+            "close_price":        "",
+            "position_amt":       "",
+            "unrealized_pnl":     "",
+            "roe_pct":            "",
+            "leverage":           "",
         })
 
     print("=" * len(divider))
 
-    # 写入 CSV
-    write_header = not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0
-    with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
+    # 读取已有记录，追加新行后整体覆写
+    existing = []
+    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 0:
+        with open(LOG_FILE, "r", newline="", encoding="utf-8") as f:
+            existing = list(csv.DictReader(f))
+    existing.extend(csv_rows)
+    with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerows(csv_rows)
-    print(f"已追加写入 {LOG_FILE}（{len(csv_rows)} 条）")
+        writer.writeheader()
+        writer.writerows(existing)
+    print(f"已写入 {LOG_FILE}（{len(csv_rows)} 条）")
 
 
 if __name__ == "__main__":

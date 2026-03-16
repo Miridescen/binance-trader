@@ -25,8 +25,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-OPEN_LOG_FILE        = os.path.join(os.path.dirname(__file__), "open_log.csv")
-OPEN_LOG_FIELDS      = ["time", "symbol", "side", "change_pct", "market_cap_usd", "circulating_supply"]
+OPEN_LOG_FILE = os.path.join(os.path.dirname(__file__), "open_log.csv")
+LOG_FIELDS    = ["open_time", "close_time", "symbol", "side",
+                 "change_pct", "market_cap_usd", "circulating_supply",
+                 "entry_price", "close_price", "position_amt",
+                 "unrealized_pnl", "roe_pct", "leverage"]
 
 LEVERAGE             = 3
 MARGIN_PER_POS       = 10
@@ -100,10 +103,62 @@ def close_all_positions(hedge: bool):
         time.sleep(0.15)
     log.info(f"共平仓 {closed}/{len(active)} 个持仓")
 
+def save_close_log(positions: list, now: datetime):
+    """平仓前把收益数据回填到对应的开仓行；无匹配行则新增一行"""
+    ts   = now.strftime("%Y-%m-%d %H:%M:%S")
+    rows = _read_log()
+
+    for p in positions:
+        amt      = float(p["positionAmt"])
+        entry    = float(p["entryPrice"])
+        mark     = float(p["markPrice"])
+        pnl      = float(p["unRealizedProfit"])
+        leverage = int(p["leverage"])
+        margin   = entry * abs(amt) / leverage if leverage and entry else 0
+        roe      = pnl / margin * 100 if margin else 0
+        sym      = p["symbol"]
+
+        close_data = {
+            "close_time":    ts,
+            "entry_price":   f"{entry:.6f}",
+            "close_price":   f"{mark:.6f}",
+            "position_amt":  f"{abs(amt):.6f}",
+            "unrealized_pnl": f"{pnl:.4f}",
+            "roe_pct":       f"{roe:.4f}",
+            "leverage":      leverage,
+        }
+
+        # 找最近一条同币种且未平仓的开仓行
+        matched = False
+        for row in reversed(rows):
+            if row["symbol"] == sym and not row.get("close_time"):
+                row.update(close_data)
+                matched = True
+                break
+
+        if not matched:
+            rows.append({
+                "open_time":          "",
+                "symbol":             sym,
+                "side":               "多" if amt > 0 else "空",
+                "change_pct":         "",
+                "market_cap_usd":     "",
+                "circulating_supply": "",
+                **close_data,
+            })
+
+    _write_log(rows)
+    log.info(f"上周期收益已回填到 {OPEN_LOG_FILE}（{len(positions)} 条）")
+
+
 def run_close():
     log.info("=" * 50)
     log.info("【平仓开始】")
-    hedge = is_hedge_mode()
+    hedge     = is_hedge_mode()
+    positions = auth_get("/fapi/v2/positionRisk")
+    active    = [p for p in positions if float(p["positionAmt"]) != 0]
+    if active:
+        save_close_log(active, datetime.now())
     log.info("撤销所有挂单...")
     cancel_all_open_orders()
     log.info("市价平仓...")
@@ -246,15 +301,41 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
             time.sleep(0.15)
 
 
+def _read_log() -> list:
+    if not os.path.exists(OPEN_LOG_FILE) or os.path.getsize(OPEN_LOG_FILE) == 0:
+        return []
+    with open(OPEN_LOG_FILE, "r", newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _write_log(rows: list):
+    with open(OPEN_LOG_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def save_open_csv(rows: list, now: datetime):
-    """将开单观察数据追加写入 open_log.csv"""
-    write_header = not os.path.exists(OPEN_LOG_FILE) or os.path.getsize(OPEN_LOG_FILE) == 0
-    with open(OPEN_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=OPEN_LOG_FIELDS)
-        if write_header:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow({**row, "time": now.strftime("%Y-%m-%d %H:%M:%S")})
+    """将开单观察数据追加写入 open_log.csv（平仓字段留空待填）"""
+    ts       = now.strftime("%Y-%m-%d %H:%M:%S")
+    existing = _read_log()
+    for row in rows:
+        existing.append({
+            "open_time":          ts,
+            "close_time":         "",
+            "symbol":             row["symbol"],
+            "side":               row["side"],
+            "change_pct":         row["change_pct"],
+            "market_cap_usd":     row["market_cap_usd"],
+            "circulating_supply": row["circulating_supply"],
+            "entry_price":        "",
+            "close_price":        "",
+            "position_amt":       "",
+            "unrealized_pnl":     "",
+            "roe_pct":            "",
+            "leverage":           "",
+        })
+    _write_log(existing)
     log.info(f"开单观察数据已写入 {OPEN_LOG_FILE}（{len(rows)} 条）")
 
 
@@ -302,11 +383,11 @@ def print_open_summary(top_gainers: list, top_losers: list):
                 f"| {fmt_large(cs):>{C['supply']}} |"
             )
             csv_rows.append({
-                "symbol":              sym,
-                "side":                side_str,
-                "change_pct":          f"{pct:.4f}",
-                "market_cap_usd":      f"{mc:.0f}" if mc else "",
-                "circulating_supply":  f"{cs:.4f}" if cs else "",
+                "symbol":             sym,
+                "side":               side_str,
+                "change_pct":         f"{pct:.4f}",
+                "market_cap_usd":     f"{mc:.0f}" if mc else "",
+                "circulating_supply": f"{cs:.4f}" if cs else "",
             })
         print(divider)
 
