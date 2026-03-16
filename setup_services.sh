@@ -59,6 +59,17 @@ echo "✅ 日志目录：${PROJECT_DIR}/logs/"
 write_service "binance-monitor"   "monitor_positions.py"  "Binance 持仓监控（每小时统计）"
 write_service "binance-strategy"  "open_top_shorts.py"    "Binance 涨跌幅策略（定时开平仓）"
 
+# ── 拉取最新代码 ───────────────────────────────────────
+
+echo "正在从 Git 拉取最新代码..."
+cd "${PROJECT_DIR}"
+if git pull; then
+    echo "✅ 代码已更新"
+else
+    echo "⚠️  git pull 失败，继续使用当前代码"
+fi
+echo ""
+
 # ── 重载并启用 ─────────────────────────────────────────
 
 systemctl daemon-reload
