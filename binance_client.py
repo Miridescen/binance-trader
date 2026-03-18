@@ -105,6 +105,16 @@ def get_ticker_24h(valid_symbols: set, min_volume: float) -> list:
 def is_hedge_mode() -> bool:
     return auth_get("/fapi/v1/positionSide/dual").get("dualSidePosition", False)
 
+def get_funding_income(start_ms: int, end_ms: int) -> float:
+    """获取指定时间段内的资金费率收支（正=收入，负=支出）"""
+    data = auth_get("/fapi/v1/income", {
+        "incomeType": "FUNDING_FEE",
+        "startTime":  start_ms,
+        "endTime":    end_ms,
+        "limit":      1000,
+    })
+    return sum(float(item["income"]) for item in data)
+
 
 # ── CoinGecko 行情补充 ─────────────────────────────────
 

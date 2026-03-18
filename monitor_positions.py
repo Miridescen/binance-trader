@@ -9,7 +9,7 @@ import csv
 import time
 import logging
 from datetime import datetime
-from binance_client import auth_get
+from binance_client import auth_get, get_funding_income
 
 LOG_FILE = os.path.join(os.path.dirname(__file__), "positions_log.csv")
 
@@ -71,7 +71,7 @@ COL = {"symbol": 14, "side": 4, "amt": 10, "entry": 10, "mark": 10, "pnl": 11, "
 def sep(char="-"):
     print(char * (sum(COL.values()) + len(COL) * 3 + 1))
 
-def print_report(positions: list, balance: float, now: datetime):
+def print_report(positions: list, balance: float, now: datetime, funding_fee: float = 0.0):
     s = calc_stats(positions)
     sep("=")
     print(f"  统计时间：{now.strftime('%Y-%m-%d %H:%M:%S')}    账户余额：{balance:.2f} USDT")
@@ -80,6 +80,7 @@ def print_report(positions: list, balance: float, now: datetime):
     sep("-")
     print(f"  多单（{s['long_count']:>2} 笔）总盈亏：{s['long_pnl']:>+10.2f} USDT    "
           f"空单（{s['short_count']:>2} 笔）总盈亏：{s['short_pnl']:>+10.2f} USDT")
+    print(f"  本小时资金费率：{funding_fee:>+10.4f} USDT")
     sep("=")
 
     if not positions:
@@ -117,9 +118,9 @@ def print_report(positions: list, balance: float, now: datetime):
 # ── CSV 日志 ───────────────────────────────────────────
 
 CSV_FIELDS = ["time", "balance_usdt", "long_count", "long_pnl",
-              "short_count", "short_pnl", "total_pnl"]
+              "short_count", "short_pnl", "total_pnl", "funding_fee"]
 
-def save_csv(positions: list, balance: float, now: datetime):
+def save_csv(positions: list, balance: float, now: datetime, funding_fee: float = 0.0):
     s = calc_stats(positions)
     write_header = not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0
     with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
@@ -134,6 +135,7 @@ def save_csv(positions: list, balance: float, now: datetime):
             "short_count":  s["short_count"],
             "short_pnl":    f"{s['short_pnl']:.2f}",
             "total_pnl":    f"{s['total_pnl']:.2f}",
+            "funding_fee":  f"{funding_fee:.4f}",
         })
 
 
@@ -150,8 +152,15 @@ def collect_and_report():
     now       = datetime.now()
     positions = get_positions()
     balance   = get_account_balance()
-    print_report(positions, balance, now)
-    save_csv(positions, balance, now)
+    end_ms    = int(now.timestamp() * 1000)
+    start_ms  = end_ms - 3_600_000
+    try:
+        funding_fee = get_funding_income(start_ms, end_ms)
+    except Exception as e:
+        log.warning(f"获取资金费率失败：{e}")
+        funding_fee = 0.0
+    print_report(positions, balance, now, funding_fee)
+    save_csv(positions, balance, now, funding_fee)
 
 def main():
     log.info(f"持仓监控启动，每小时整点统计一次，日志：{LOG_FILE}")
