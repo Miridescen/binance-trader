@@ -18,7 +18,6 @@ env/
 logs/
 *.log
 *.jsonl
-positions_log.csv
 
 # IDE
 .idea/
