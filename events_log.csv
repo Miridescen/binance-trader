@@ -1,0 +1,2 @@
+time,event,detail
+2026-03-20 11:30:00,STRATEGY_CHANGE,开始过滤无市值数据的币对（market_cap_usd 为空则跳过），候选池从 TOP_N 扩大到 TOP_N*2 后再筛选

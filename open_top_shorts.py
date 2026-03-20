@@ -25,15 +25,18 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-OPEN_LOG_FILE = os.path.join(os.path.dirname(__file__), "open_log.csv")
-LOG_FIELDS    = ["open_time", "close_time", "symbol", "side",
-                 "change_pct", "market_cap_usd", "circulating_supply",
-                 "entry_price", "close_price", "position_amt",
-                 "unrealized_pnl", "roe_pct", "leverage"]
+OPEN_LOG_FILE   = os.path.join(os.path.dirname(__file__), "open_log.csv")
+EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
+LOG_FIELDS      = ["open_time", "close_time", "symbol", "side",
+                   "change_pct", "market_cap_usd", "circulating_supply",
+                   "entry_price", "close_price", "position_amt",
+                   "unrealized_pnl", "roe_pct", "leverage"]
+EVENTS_FIELDS   = ["time", "event", "detail"]
 
 LEVERAGE             = 3
 MARGIN_PER_POS       = 10
 TOP_N                = 10
+CANDIDATE_BUFFER     = 2        # 拉取 TOP_N * N 倍候选，过滤无市值后取前 TOP_N
 MIN_VOLUME           = 10_000_000
 ORDER_CHECK_INTERVAL = 60
 MAX_RETRIES          = 10
@@ -305,6 +308,20 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
             time.sleep(0.15)
 
 
+def log_event(event: str, detail: str):
+    """向 events_log.csv 追加一条策略事件记录"""
+    write_header = not os.path.exists(EVENTS_LOG_FILE) or os.path.getsize(EVENTS_LOG_FILE) == 0
+    with open(EVENTS_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=EVENTS_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow({
+            "time":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "event":  event,
+            "detail": detail,
+        })
+
+
 def _read_log() -> list:
     if not os.path.exists(OPEN_LOG_FILE) or os.path.getsize(OPEN_LOG_FILE) == 0:
         return []
@@ -343,17 +360,16 @@ def save_open_csv(rows: list, now: datetime):
     log.info(f"开单观察数据已写入 {OPEN_LOG_FILE}（{len(rows)} 条）")
 
 
-def print_open_summary(top_gainers: list, top_losers: list):
+def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = None):
     """开单完成后输出标的行情观察表（市值、流通量、24h涨跌），并保存 CSV"""
-    all_tickers = top_gainers + top_losers
-    symbols     = [t["symbol"] for t in all_tickers]
-
-    log.info("正在从 CoinGecko 获取市值/流通量数据...")
-    try:
-        market_data = get_coin_market_data(symbols)
-    except Exception as e:
-        log.warning(f"CoinGecko 数据获取失败，跳过观察表：{e}")
-        return
+    if market_data is None:
+        symbols = [t["symbol"] for t in top_gainers + top_losers]
+        log.info("正在从 CoinGecko 获取市值/流通量数据...")
+        try:
+            market_data = get_coin_market_data(symbols)
+        except Exception as e:
+            log.warning(f"CoinGecko 数据获取失败，跳过观察表：{e}")
+            return
 
     C = {"symbol": 14, "side": 4, "pct": 10, "mcap": 13, "supply": 18}
     divider = "-" * (sum(C.values()) + len(C) * 3 + 1)
@@ -403,19 +419,45 @@ def run_open():
     log.info("=" * 50)
     log.info(f"【开单开始】杠杆 {LEVERAGE}x  保证金 {MARGIN_PER_POS} USDT  名义 {MARGIN_PER_POS * LEVERAGE} USDT")
 
-    valid_symbols, symbol_info = get_exchange_info()   # 只请求一次
+    valid_symbols, symbol_info = get_exchange_info()
     tickers = get_ticker_24h(valid_symbols, MIN_VOLUME)
     tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
-    top_gainers = tickers[:TOP_N]
-    top_losers  = tickers[-TOP_N:][::-1]
-    hedge       = is_hedge_mode()
+    hedge = is_hedge_mode()
+
+    # 取 2 倍候选池，提前拉市值用于过滤无市值币
+    n = TOP_N * CANDIDATE_BUFFER
+    gainer_pool = tickers[:n]
+    loser_pool  = tickers[-n:][::-1]
+
+    log.info("正在从 CoinGecko 获取市值/流通量数据（过滤无市值币）...")
+    try:
+        market_data = get_coin_market_data([t["symbol"] for t in gainer_pool + loser_pool])
+    except Exception as e:
+        log.warning(f"CoinGecko 数据获取失败，不过滤市值：{e}")
+        market_data = {}
+
+    if market_data:
+        def has_mcap(t):
+            return bool(market_data.get(t["symbol"], {}).get("market_cap"))
+
+        top_gainers = [t for t in gainer_pool if has_mcap(t)][:TOP_N]
+        top_losers  = [t for t in loser_pool  if has_mcap(t)][:TOP_N]
+
+        skipped = [t["symbol"] for t in gainer_pool + loser_pool if not has_mcap(t)]
+        if skipped:
+            detail = f"跳过无市值币 {len(skipped)} 个: {skipped}"
+            log.info(detail)
+            log_event("FILTER_NO_MCAP", detail)
+    else:
+        top_gainers = gainer_pool[:TOP_N]
+        top_losers  = loser_pool[:TOP_N]
 
     log.info(f"持仓模式：{'双向（对冲）' if hedge else '单向'}")
 
     run_batch_orders("空单（涨幅榜）", top_gainers, "SELL", symbol_info, hedge)
     run_batch_orders("多单（跌幅榜）", top_losers,  "BUY",  symbol_info, hedge)
 
-    print_open_summary(top_gainers, top_losers)
+    print_open_summary(top_gainers, top_losers, market_data)
     log.info("【开单全部完成】")
 
 
