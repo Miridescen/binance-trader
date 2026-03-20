@@ -65,16 +65,17 @@ EOF
 mkdir -p "${PROJECT_DIR}/logs"
 echo "✅ 日志目录：${PROJECT_DIR}/logs/"
 
-# ── 写入两个服务 ───────────────────────────────────────
+# ── 写入三个服务 ───────────────────────────────────────
 
 write_service "binance-monitor"   "monitor_positions.py"  "Binance 持仓监控（每小时统计）"
 write_service "binance-strategy"  "open_top_shorts.py"    "Binance 涨跌幅策略（定时开平仓）"
+write_service "binance-virtual"   "virtual_trade.py"      "Binance 虚拟沙盘（不过滤市值，对照组）"
 
 # ── 重载并启用 ─────────────────────────────────────────
 
 systemctl daemon-reload
 
-for svc in binance-monitor binance-strategy; do
+for svc in binance-monitor binance-strategy binance-virtual; do
     systemctl enable  $svc
     systemctl restart $svc
     sleep 1
@@ -92,8 +93,10 @@ echo " 安装完成！常用命令："
 echo "======================================"
 echo " 查看状态：  systemctl status binance-monitor"
 echo "             systemctl status binance-strategy"
+echo "             systemctl status binance-virtual"
 echo " 查看日志：  tail -f ${PROJECT_DIR}/logs/binance-monitor.log"
 echo "             tail -f ${PROJECT_DIR}/logs/binance-strategy.log"
-echo " 停止服务：  systemctl stop binance-monitor"
+echo "             tail -f ${PROJECT_DIR}/logs/binance-virtual.log"
+echo " 停止服务：  systemctl stop binance-virtual"
 echo " 重启服务：  systemctl restart binance-strategy"
 echo "======================================"
