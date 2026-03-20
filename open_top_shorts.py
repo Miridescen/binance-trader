@@ -15,7 +15,8 @@ from datetime import datetime, timedelta
 from binance_client import (
     auth_get, auth_post, auth_delete,
     get_exchange_info, get_ticker_24h, get_mark_price, is_hedge_mode,
-    get_coin_market_data,
+    get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
+    get_commissions_by_symbol,
 )
 
 logging.basicConfig(
@@ -29,8 +30,9 @@ OPEN_LOG_FILE   = os.path.join(os.path.dirname(__file__), "open_log.csv")
 EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
 LOG_FIELDS      = ["open_time", "close_time", "symbol", "side",
                    "change_pct", "market_cap_usd", "circulating_supply",
+                   "btc_change_pct", "symbol_funding_rate", "open_commission",
                    "entry_price", "close_price", "position_amt",
-                   "unrealized_pnl", "roe_pct", "leverage"]
+                   "unrealized_pnl", "roe_pct", "leverage", "close_commission"]
 EVENTS_FIELDS   = ["time", "event", "detail"]
 
 LEVERAGE             = 3
@@ -158,9 +160,23 @@ def save_close_log(positions: list, now: datetime):
     log.info(f"上周期收益已回填到 {OPEN_LOG_FILE}（{len(positions)} 条）")
 
 
+def _patch_close_commissions(commissions: dict):
+    """平仓后将手续费回填到当天 close_time 不为空、close_commission 为空的行"""
+    rows  = _read_log()
+    today = datetime.now().strftime("%Y-%m-%d")
+    for row in rows:
+        sym = row.get("symbol", "")
+        if (sym in commissions
+                and row.get("close_time", "").startswith(today)
+                and not row.get("close_commission")):
+            row["close_commission"] = f"{commissions[sym]:.6f}"
+    _write_log(rows)
+
+
 def run_close():
     log.info("=" * 50)
     log.info("【平仓开始】")
+    close_start_ms = int(time.time() * 1000)
     hedge     = is_hedge_mode()
     positions = auth_get("/fapi/v2/positionRisk")
     active    = [p for p in positions if float(p["positionAmt"]) != 0]
@@ -170,6 +186,17 @@ def run_close():
     cancel_all_open_orders()
     log.info("市价平仓...")
     close_all_positions(hedge)
+    close_end_ms = int(time.time() * 1000)
+
+    try:
+        close_commissions = get_commissions_by_symbol(close_start_ms, close_end_ms)
+        total_comm = sum(close_commissions.values())
+        log.info(f"本批平仓手续费合计：{total_comm:.4f} USDT（{len(close_commissions)} 个币种）")
+        if close_commissions:
+            _patch_close_commissions(close_commissions)
+    except Exception as e:
+        log.warning(f"获取平仓手续费失败：{e}")
+
     log.info("【平仓完成】")
 
 
@@ -331,7 +358,7 @@ def _read_log() -> list:
 
 def _write_log(rows: list):
     with open(OPEN_LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS, extrasaction="ignore", restval="")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -342,26 +369,32 @@ def save_open_csv(rows: list, now: datetime):
     existing = _read_log()
     for row in rows:
         existing.append({
-            "open_time":          ts,
-            "close_time":         "",
-            "symbol":             row["symbol"],
-            "side":               row["side"],
-            "change_pct":         row["change_pct"],
-            "market_cap_usd":     row["market_cap_usd"],
-            "circulating_supply": row["circulating_supply"],
-            "entry_price":        "",
-            "close_price":        "",
-            "position_amt":       "",
-            "unrealized_pnl":     "",
-            "roe_pct":            "",
-            "leverage":           "",
+            "open_time":           ts,
+            "close_time":          "",
+            "symbol":              row["symbol"],
+            "side":                row["side"],
+            "change_pct":          row["change_pct"],
+            "market_cap_usd":      row["market_cap_usd"],
+            "circulating_supply":  row["circulating_supply"],
+            "btc_change_pct":      row.get("btc_change_pct", ""),
+            "symbol_funding_rate": row.get("symbol_funding_rate", ""),
+            "open_commission":     row.get("open_commission", ""),
+            "entry_price":         "",
+            "close_price":         "",
+            "position_amt":        "",
+            "unrealized_pnl":      "",
+            "roe_pct":             "",
+            "leverage":            "",
+            "close_commission":    "",
         })
     _write_log(existing)
     log.info(f"开单观察数据已写入 {OPEN_LOG_FILE}（{len(rows)} 条）")
 
 
-def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = None):
-    """开单完成后输出标的行情观察表（市值、流通量、24h涨跌），并保存 CSV"""
+def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = None,
+                       btc_pct: float = None, funding_rates: dict = None,
+                       commissions: dict = None):
+    """开单完成后输出标的行情观察表，并保存 CSV"""
     if market_data is None:
         symbols = [t["symbol"] for t in top_gainers + top_losers]
         log.info("正在从 CoinGecko 获取市值/流通量数据...")
@@ -371,16 +404,21 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
             log.warning(f"CoinGecko 数据获取失败，跳过观察表：{e}")
             return
 
-    C = {"symbol": 14, "side": 4, "pct": 10, "mcap": 13, "supply": 18}
+    funding_rates = funding_rates or {}
+    commissions   = commissions   or {}
+    btc_str = f"{btc_pct:+.2f}%" if btc_pct is not None else "N/A"
+
+    C = {"symbol": 14, "side": 4, "pct": 10, "fr": 10, "comm": 10, "mcap": 13, "supply": 18}
     divider = "-" * (sum(C.values()) + len(C) * 3 + 1)
     header  = "=" * len(divider)
 
     print(header)
-    print("  开单标的行情观察")
+    print(f"  开单标的行情观察    BTC 24h涨跌：{btc_str}")
     print(divider)
     print(
         f"| {'交易对':<{C['symbol']}} | {'方向':<{C['side']}} "
-        f"| {'24h涨跌':>{C['pct']}} | {'市值(USD)':>{C['mcap']}} "
+        f"| {'24h涨跌':>{C['pct']}} | {'资金费率':>{C['fr']}} "
+        f"| {'开仓手续费':>{C['comm']}} | {'市值(USD)':>{C['mcap']}} "
         f"| {'流通量':>{C['supply']}} |"
     )
     print(divider)
@@ -397,17 +435,25 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
             md   = market_data.get(sym, {})
             mc   = md.get("market_cap", 0)
             cs   = md.get("circulating_supply", 0)
+            fr   = funding_rates.get(sym)
+            comm = commissions.get(sym, 0.0)
+            fr_str   = f"{fr*100:+.4f}%" if fr is not None else "N/A"
+            comm_str = f"{comm:.4f}"
             print(
                 f"| {sym:<{C['symbol']}} | {side_str:<{C['side']}} "
-                f"| {pct:>+{C['pct']}.2f}% | {fmt_large(mc):>{C['mcap']}} "
+                f"| {pct:>+{C['pct']}.2f}% | {fr_str:>{C['fr']}} "
+                f"| {comm_str:>{C['comm']}} | {fmt_large(mc):>{C['mcap']}} "
                 f"| {fmt_large(cs):>{C['supply']}} |"
             )
             csv_rows.append({
-                "symbol":             sym,
-                "side":               side_str,
-                "change_pct":         f"{pct:.4f}",
-                "market_cap_usd":     f"{mc:.0f}" if mc else "",
-                "circulating_supply": f"{cs:.4f}" if cs else "",
+                "symbol":              sym,
+                "side":                side_str,
+                "change_pct":          f"{pct:.4f}",
+                "market_cap_usd":      f"{mc:.0f}" if mc else "",
+                "circulating_supply":  f"{cs:.4f}" if cs else "",
+                "btc_change_pct":      f"{btc_pct:.4f}" if btc_pct is not None else "",
+                "symbol_funding_rate": f"{fr:.6f}" if fr is not None else "",
+                "open_commission":     f"{comm:.6f}",
             })
         print(divider)
 
@@ -454,10 +500,34 @@ def run_open():
 
     log.info(f"持仓模式：{'双向（对冲）' if hedge else '单向'}")
 
+    open_start_ms = int(time.time() * 1000)
     run_batch_orders("空单（涨幅榜）", top_gainers, "SELL", symbol_info, hedge)
     run_batch_orders("多单（跌幅榜）", top_losers,  "BUY",  symbol_info, hedge)
+    open_end_ms = int(time.time() * 1000)
 
-    print_open_summary(top_gainers, top_losers, market_data)
+    # 开单完成后采集辅助指标
+    try:
+        btc_pct = get_btc_change_pct()
+        log.info(f"BTC 24h涨跌幅：{btc_pct:+.2f}%")
+    except Exception as e:
+        log.warning(f"获取 BTC 涨跌幅失败：{e}")
+        btc_pct = None
+
+    try:
+        funding_rates = get_all_funding_rates()
+    except Exception as e:
+        log.warning(f"获取资金费率失败：{e}")
+        funding_rates = {}
+
+    try:
+        commissions = get_commissions_by_symbol(open_start_ms, open_end_ms)
+        total_comm  = sum(commissions.values())
+        log.info(f"本批开仓手续费合计：{total_comm:.4f} USDT（{len(commissions)} 个币种）")
+    except Exception as e:
+        log.warning(f"获取开仓手续费失败：{e}")
+        commissions = {}
+
+    print_open_summary(top_gainers, top_losers, market_data, btc_pct, funding_rates, commissions)
     log.info("【开单全部完成】")
 
 

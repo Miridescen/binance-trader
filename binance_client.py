@@ -115,6 +115,30 @@ def get_funding_income(start_ms: int, end_ms: int) -> float:
     })
     return sum(float(item["income"]) for item in data)
 
+def get_btc_change_pct() -> float:
+    """获取 BTC 当前 24h 涨跌幅（%）"""
+    data = public_get("/fapi/v1/ticker/24hr", {"symbol": "BTCUSDT"})
+    return float(data["priceChangePercent"])
+
+def get_all_funding_rates() -> dict:
+    """获取所有合约当前资金费率，返回 {symbol: lastFundingRate}"""
+    data = public_get("/fapi/v1/premiumIndex")
+    return {item["symbol"]: float(item["lastFundingRate"]) for item in data}
+
+def get_commissions_by_symbol(start_ms: int, end_ms: int) -> dict:
+    """获取时间段内各币种手续费合计，返回 {symbol: usdt}（负数=支出）"""
+    data = auth_get("/fapi/v1/income", {
+        "incomeType": "COMMISSION",
+        "startTime":  start_ms,
+        "endTime":    end_ms,
+        "limit":      1000,
+    })
+    result = {}
+    for item in data:
+        sym = item.get("symbol", "")
+        result[sym] = result.get(sym, 0.0) + float(item["income"])
+    return result
+
 
 # ── CoinGecko 行情补充 ─────────────────────────────────
 
