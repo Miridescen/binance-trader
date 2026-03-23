@@ -125,6 +125,43 @@ def get_all_funding_rates() -> dict:
     data = public_get("/fapi/v1/premiumIndex")
     return {item["symbol"]: float(item["lastFundingRate"]) for item in data}
 
+def get_oi_changes(symbols: list) -> dict:
+    """
+    批量获取各币种近1小时持仓量变化率（%）
+    返回: {symbol: oi_change_pct}，取不到的币种不在返回值中
+    """
+    result = {}
+    for sym in symbols:
+        try:
+            data = public_get("/futures/data/openInterestHist",
+                              {"symbol": sym, "period": "1h", "limit": 2})
+            if len(data) >= 2:
+                prev = float(data[0]["sumOpenInterest"])
+                curr = float(data[1]["sumOpenInterest"])
+                if prev:
+                    result[sym] = (curr - prev) / prev * 100
+        except Exception:
+            pass
+        time.sleep(0.1)
+    return result
+
+def get_long_short_ratios(symbols: list) -> dict:
+    """
+    批量获取各币种全球账户多空比（>1 多头占优，<1 空头占优）
+    返回: {symbol: ratio}，取不到的币种不在返回值中
+    """
+    result = {}
+    for sym in symbols:
+        try:
+            data = public_get("/futures/data/globalLongShortAccountRatio",
+                              {"symbol": sym, "period": "5m", "limit": 1})
+            if data:
+                result[sym] = float(data[0]["longShortRatio"])
+        except Exception:
+            pass
+        time.sleep(0.1)
+    return result
+
 def get_commissions_by_symbol(start_ms: int, end_ms: int) -> dict:
     """获取时间段内各币种手续费合计，返回 {symbol: usdt}（负数=支出）"""
     data = auth_get("/fapi/v1/income", {

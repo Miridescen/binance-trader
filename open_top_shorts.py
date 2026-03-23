@@ -16,7 +16,7 @@ from binance_client import (
     auth_get, auth_post, auth_delete,
     get_exchange_info, get_ticker_24h, get_mark_price, is_hedge_mode,
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
-    get_commissions_by_symbol,
+    get_commissions_by_symbol, get_oi_changes, get_long_short_ratios,
 )
 
 logging.basicConfig(
@@ -30,7 +30,8 @@ OPEN_LOG_FILE   = os.path.join(os.path.dirname(__file__), "open_log.csv")
 EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
 LOG_FIELDS      = ["open_time", "close_time", "symbol", "side",
                    "change_pct", "market_cap_usd", "circulating_supply",
-                   "btc_change_pct", "symbol_funding_rate", "open_commission",
+                   "btc_change_pct", "symbol_funding_rate", "oi_change_pct",
+                   "long_short_ratio", "open_commission",
                    "entry_price", "close_price", "position_amt",
                    "unrealized_pnl", "roe_pct", "leverage", "close_commission"]
 EVENTS_FIELDS   = ["time", "event", "detail"]
@@ -393,7 +394,8 @@ def save_open_csv(rows: list, now: datetime):
 
 def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = None,
                        btc_pct: float = None, funding_rates: dict = None,
-                       commissions: dict = None):
+                       commissions: dict = None, oi_changes: dict = None,
+                       long_short_ratios: dict = None):
     """开单完成后输出标的行情观察表，并保存 CSV"""
     if market_data is None:
         symbols = [t["symbol"] for t in top_gainers + top_losers]
@@ -404,11 +406,13 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
             log.warning(f"CoinGecko 数据获取失败，跳过观察表：{e}")
             return
 
-    funding_rates = funding_rates or {}
-    commissions   = commissions   or {}
+    funding_rates    = funding_rates    or {}
+    commissions      = commissions      or {}
+    oi_changes       = oi_changes       or {}
+    long_short_ratios = long_short_ratios or {}
     btc_str = f"{btc_pct:+.2f}%" if btc_pct is not None else "N/A"
 
-    C = {"symbol": 14, "side": 4, "pct": 10, "fr": 10, "comm": 10, "mcap": 13, "supply": 18}
+    C = {"symbol": 14, "side": 4, "pct": 10, "fr": 10, "oi": 10, "ls": 8, "comm": 10, "mcap": 13, "supply": 18}
     divider = "-" * (sum(C.values()) + len(C) * 3 + 1)
     header  = "=" * len(divider)
 
@@ -418,6 +422,7 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
     print(
         f"| {'交易对':<{C['symbol']}} | {'方向':<{C['side']}} "
         f"| {'24h涨跌':>{C['pct']}} | {'资金费率':>{C['fr']}} "
+        f"| {'OI变化':>{C['oi']}} | {'多空比':>{C['ls']}} "
         f"| {'开仓手续费':>{C['comm']}} | {'市值(USD)':>{C['mcap']}} "
         f"| {'流通量':>{C['supply']}} |"
     )
@@ -436,12 +441,17 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
             mc   = md.get("market_cap", 0)
             cs   = md.get("circulating_supply", 0)
             fr   = funding_rates.get(sym)
+            oi   = oi_changes.get(sym)
+            ls   = long_short_ratios.get(sym)
             comm = commissions.get(sym, 0.0)
-            fr_str   = f"{fr*100:+.4f}%" if fr is not None else "N/A"
+            fr_str = f"{fr*100:+.4f}%" if fr is not None else "N/A"
+            oi_str = f"{oi:+.2f}%"     if oi is not None else "N/A"
+            ls_str = f"{ls:.3f}"        if ls is not None else "N/A"
             comm_str = f"{comm:.4f}"
             print(
                 f"| {sym:<{C['symbol']}} | {side_str:<{C['side']}} "
                 f"| {pct:>+{C['pct']}.2f}% | {fr_str:>{C['fr']}} "
+                f"| {oi_str:>{C['oi']}} | {ls_str:>{C['ls']}} "
                 f"| {comm_str:>{C['comm']}} | {fmt_large(mc):>{C['mcap']}} "
                 f"| {fmt_large(cs):>{C['supply']}} |"
             )
@@ -452,7 +462,9 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
                 "market_cap_usd":      fmt_large(mc) if mc else "",
                 "circulating_supply":  fmt_large(cs) if cs else "",
                 "btc_change_pct":      f"{btc_pct:.4f}" if btc_pct is not None else "",
-                "symbol_funding_rate": f"{fr:.6f}" if fr is not None else "",
+                "symbol_funding_rate": f"{fr:.6f}"      if fr is not None else "",
+                "oi_change_pct":       f"{oi:.4f}"      if oi is not None else "",
+                "long_short_ratio":    f"{ls:.4f}"      if ls is not None else "",
                 "open_commission":     f"{comm:.6f}",
             })
         print(divider)
@@ -519,6 +531,22 @@ def run_open():
         log.warning(f"获取资金费率失败：{e}")
         funding_rates = {}
 
+    all_symbols = [t["symbol"] for t in top_gainers + top_losers]
+
+    log.info("正在获取持仓量变化（OI）...")
+    try:
+        oi_changes = get_oi_changes(all_symbols)
+    except Exception as e:
+        log.warning(f"获取OI变化失败：{e}")
+        oi_changes = {}
+
+    log.info("正在获取多空持仓比...")
+    try:
+        long_short_ratios = get_long_short_ratios(all_symbols)
+    except Exception as e:
+        log.warning(f"获取多空比失败：{e}")
+        long_short_ratios = {}
+
     try:
         commissions = get_commissions_by_symbol(open_start_ms, open_end_ms)
         total_comm  = sum(commissions.values())
@@ -527,7 +555,8 @@ def run_open():
         log.warning(f"获取开仓手续费失败：{e}")
         commissions = {}
 
-    print_open_summary(top_gainers, top_losers, market_data, btc_pct, funding_rates, commissions)
+    print_open_summary(top_gainers, top_losers, market_data, btc_pct,
+                       funding_rates, commissions, oi_changes, long_short_ratios)
     log.info("【开单全部完成】")
 
 

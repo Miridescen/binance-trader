@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from binance_client import (
     public_get, get_exchange_info, get_ticker_24h, get_mark_price,
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
+    get_oi_changes, get_long_short_ratios,
 )
 
 logging.basicConfig(
@@ -39,7 +40,7 @@ VIRTUAL_LOG_FILE = os.path.join(os.path.dirname(__file__), "virtual_open_log.csv
 LOG_FIELDS = [
     "open_time", "close_time", "symbol", "side",
     "change_pct", "market_cap_usd", "circulating_supply", "has_mcap",
-    "btc_change_pct", "symbol_funding_rate",
+    "btc_change_pct", "symbol_funding_rate", "oi_change_pct", "long_short_ratio",
     "entry_price", "close_price",
     "unrealized_pnl", "roe_pct",
 ]
@@ -146,6 +147,20 @@ def virtual_open():
         log.warning(f"获取资金费率失败：{e}")
         funding_rates = {}
 
+    log.info("正在获取持仓量变化（OI）...")
+    try:
+        oi_changes = get_oi_changes(all_syms)
+    except Exception as e:
+        log.warning(f"获取OI变化失败：{e}")
+        oi_changes = {}
+
+    log.info("正在获取多空持仓比...")
+    try:
+        ls_ratios = get_long_short_ratios(all_syms)
+    except Exception as e:
+        log.warning(f"获取多空比失败：{e}")
+        ls_ratios = {}
+
     now = datetime.now()
     ts  = now.strftime("%Y-%m-%d %H:%M:%S")
     existing = _read_log()
@@ -171,6 +186,8 @@ def virtual_open():
             cs       = md.get("circulating_supply", 0)
             has_mcap = "1" if mc else "0"
             fr       = funding_rates.get(sym)
+            oi       = oi_changes.get(sym)
+            ls       = ls_ratios.get(sym)
 
             log.info(
                 f"  {sym} {side_str}  涨跌 {pct:+.2f}%  "
@@ -190,6 +207,8 @@ def virtual_open():
                 "has_mcap":            has_mcap,
                 "btc_change_pct":      f"{btc_pct:.4f}" if btc_pct is not None else "",
                 "symbol_funding_rate": f"{fr:.6f}" if fr is not None else "",
+                "oi_change_pct":       f"{oi:.4f}"  if oi is not None else "",
+                "long_short_ratio":    f"{ls:.4f}"  if ls is not None else "",
                 "entry_price":         f"{entry:.6f}",
                 "close_price":         "",
                 "unrealized_pnl":      "",
