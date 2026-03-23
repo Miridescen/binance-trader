@@ -25,6 +25,16 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+
+def fmt_large(n: float) -> str:
+    if n >= 1e9:
+        return f"{n / 1e9:.2f}B"
+    if n >= 1e6:
+        return f"{n / 1e6:.2f}M"
+    if n > 0:
+        return f"{n:.0f}"
+    return "N/A"
+
 VIRTUAL_LOG_FILE = os.path.join(os.path.dirname(__file__), "virtual_open_log.csv")
 LOG_FIELDS = [
     "open_time", "close_time", "symbol", "side",
@@ -175,8 +185,8 @@ def virtual_open():
                 "symbol":              sym,
                 "side":                side_str,
                 "change_pct":          f"{pct:.4f}",
-                "market_cap_usd":      f"{mc:.0f}" if mc else "",
-                "circulating_supply":  f"{cs:.4f}" if cs else "",
+                "market_cap_usd":      fmt_large(mc) if mc else "",
+                "circulating_supply":  fmt_large(cs) if cs else "",
                 "has_mcap":            has_mcap,
                 "btc_change_pct":      f"{btc_pct:.4f}" if btc_pct is not None else "",
                 "symbol_funding_rate": f"{fr:.6f}" if fr is not None else "",
