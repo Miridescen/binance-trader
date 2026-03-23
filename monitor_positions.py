@@ -9,9 +9,14 @@ import csv
 import time
 import logging
 from datetime import datetime
-from binance_client import auth_get, get_funding_income
+from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode
 
-LOG_FILE = os.path.join(os.path.dirname(__file__), "positions_log.csv")
+LOG_FILE        = os.path.join(os.path.dirname(__file__), "positions_log.csv")
+EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
+EVENTS_FIELDS   = ["time", "event", "detail"]
+
+STOP_LOSS_ROE_PCT = -50   # ROE 低于此值触发止损（%）
+CHECK_INTERVAL    = 60    # 止损检查间隔（秒）
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +38,57 @@ def get_account_balance() -> float:
         if asset["asset"] == "USDT":
             return float(asset["marginBalance"])
     return 0.0
+
+
+# ── 止损 ───────────────────────────────────────────────
+
+def log_event(event: str, detail: str):
+    write_header = not os.path.exists(EVENTS_LOG_FILE) or os.path.getsize(EVENTS_LOG_FILE) == 0
+    with open(EVENTS_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=EVENTS_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow({
+            "time":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "event":  event,
+            "detail": detail,
+        })
+
+def close_position(p: dict, hedge: bool) -> bool:
+    """市价平掉单个持仓，成功返回 True"""
+    symbol = p["symbol"]
+    amt    = float(p["positionAmt"])
+    side   = "BUY" if amt < 0 else "SELL"
+    params = {"symbol": symbol, "side": side, "type": "MARKET",
+              "quantity": abs(amt), "reduceOnly": "true"}
+    if hedge:
+        params.pop("reduceOnly")
+        params["positionSide"] = "SHORT" if amt < 0 else "LONG"
+    result = auth_post("/fapi/v1/order", params)
+    return "orderId" in result
+
+def check_stop_loss(positions: list, hedge: bool):
+    """检查所有持仓，ROE 低于阈值则立即止损平仓"""
+    for p in positions:
+        amt      = float(p["positionAmt"])
+        entry    = float(p["entryPrice"])
+        mark     = float(p["markPrice"])
+        pnl      = float(p["unRealizedProfit"])
+        leverage = int(p["leverage"])
+        margin   = entry * abs(amt) / leverage if leverage and entry else 0
+        if margin == 0:
+            continue
+        roe = pnl / margin * 100
+        if roe <= STOP_LOSS_ROE_PCT:
+            symbol   = p["symbol"]
+            side_str = "空" if amt < 0 else "多"
+            log.warning(f"【止损触发】{symbol} {side_str}  ROE {roe:+.1f}%  标记价 {mark:.4f}")
+            if close_position(p, hedge):
+                detail = f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}"
+                log_event("STOP_LOSS", detail)
+                log.warning(f"  {symbol} 止损平仓成功 ✅")
+            else:
+                log.error(f"  {symbol} 止损平仓失败 ❌")
 
 
 # ── 统计 ───────────────────────────────────────────────
@@ -141,13 +197,6 @@ def save_csv(positions: list, balance: float, now: datetime, funding_fee: float 
 
 # ── 主循环 ─────────────────────────────────────────────
 
-def wait_until_next_hour():
-    now          = datetime.now()
-    seconds_left = 3600 - now.minute * 60 - now.second
-    next_hour    = datetime.fromtimestamp(time.time() + seconds_left)
-    log.info(f"下次统计：{next_hour.strftime('%H:%M:%S')}")
-    time.sleep(seconds_left)
-
 def collect_and_report():
     now       = datetime.now()
     positions = get_positions()
@@ -163,20 +212,36 @@ def collect_and_report():
     save_csv(positions, balance, now, funding_fee)
 
 def main():
-    log.info(f"持仓监控启动，每小时整点统计一次，日志：{LOG_FILE}")
+    log.info(f"持仓监控启动  止损线：ROE ≤ {STOP_LOSS_ROE_PCT}%  检查间隔：{CHECK_INTERVAL}s")
+    log.info(f"持仓日志：{LOG_FILE}")
+
+    hedge            = is_hedge_mode()
+    last_report_hour = -1
 
     # 启动时立即统计一次
     try:
         collect_and_report()
+        last_report_hour = datetime.now().hour
     except Exception as e:
         log.error(f"首次统计失败：{e}")
 
     while True:
-        wait_until_next_hour()
+        time.sleep(CHECK_INTERVAL)
+        now = datetime.now()
+
         try:
-            collect_and_report()
+            positions = get_positions()
+            check_stop_loss(positions, hedge)
         except Exception as e:
-            log.error(f"统计失败：{e}")
+            log.error(f"止损检查失败：{e}")
+
+        # 每小时整点输出报告
+        if now.hour != last_report_hour:
+            try:
+                collect_and_report()
+                last_report_hour = now.hour
+            except Exception as e:
+                log.error(f"统计失败：{e}")
 
 
 if __name__ == "__main__":
