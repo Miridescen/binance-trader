@@ -155,16 +155,27 @@ def get_coin_market_data(usdt_symbols: list) -> dict:
     result = {}
 
     for page in range(1, 5):   # 最多覆盖前 1000 名
-        try:
-            resp = requests.get(
-                f"{COINGECKO_URL}/coins/markets",
-                params={"vs_currency": "usd", "per_page": 250, "page": page,
-                        "order": "market_cap_desc"},
-                timeout=15,
-            )
-            resp.raise_for_status()
-        except Exception:
-            break
+        for attempt in range(3):   # 429 限速最多重试 3 次
+            try:
+                resp = requests.get(
+                    f"{COINGECKO_URL}/coins/markets",
+                    params={"vs_currency": "usd", "per_page": 250, "page": page,
+                            "order": "market_cap_desc"},
+                    timeout=15,
+                )
+                if resp.status_code == 429:
+                    wait = 30 * (attempt + 1)
+                    print(f"[CoinGecko] page {page} 限速，等待 {wait}s 后重试...")
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                break
+            except Exception as e:
+                if attempt == 2:
+                    print(f"[CoinGecko] page {page} 请求失败，跳过：{e}")
+                time.sleep(5)
+        else:
+            break   # 3 次均失败，终止
 
         for coin in resp.json():
             sym = coin["symbol"].lower()
@@ -177,6 +188,6 @@ def get_coin_market_data(usdt_symbols: list) -> dict:
 
         if not remaining:
             break
-        time.sleep(0.5)   # 避免触发 CoinGecko 频率限制
+        time.sleep(1.5)   # 避免触发 CoinGecko 频率限制
 
     return result
