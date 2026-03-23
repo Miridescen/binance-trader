@@ -15,7 +15,7 @@ LOG_FILE        = os.path.join(os.path.dirname(__file__), "positions_log.csv")
 EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
 EVENTS_FIELDS   = ["time", "event", "detail"]
 
-STOP_LOSS_ROE_PCT = -50   # ROE 低于此值触发止损（%）
+STOP_LOSS_ROE_PCT = -120  # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约40%
 CHECK_INTERVAL    = 60    # 止损检查间隔（秒）
 
 logging.basicConfig(
