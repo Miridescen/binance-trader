@@ -65,17 +65,38 @@ EOF
 mkdir -p "${PROJECT_DIR}/logs"
 echo "✅ 日志目录：${PROJECT_DIR}/logs/"
 
-# ── 写入三个服务 ───────────────────────────────────────
+# ── 安装 Python 依赖 ───────────────────────────────────
+
+echo "安装 Python 依赖..."
+pip3 install -r "${PROJECT_DIR}/requirements.txt" -q && echo "✅ Python 依赖安装完成"
+echo ""
+
+# ── 构建前端 ───────────────────────────────────────────
+
+echo "构建前端..."
+if command -v node &>/dev/null; then
+    cd "${PROJECT_DIR}/frontend"
+    npm install -q
+    npm run build -q
+    echo "✅ 前端构建完成：${PROJECT_DIR}/frontend/dist/"
+else
+    echo "⚠️  未检测到 node，跳过前端构建（请手动安装 Node.js 后重新运行）"
+fi
+cd "${PROJECT_DIR}"
+echo ""
+
+# ── 写入四个服务 ───────────────────────────────────────
 
 write_service "binance-monitor"   "monitor_positions.py"  "Binance 持仓监控（每小时统计）"
 write_service "binance-strategy"  "open_top_shorts.py"    "Binance 涨跌幅策略（定时开平仓）"
 write_service "binance-virtual"   "virtual_trade.py"      "Binance 虚拟沙盘（不过滤市值，对照组）"
+write_service "binance-api"       "api.py"                "Binance 前端 API（Flask，端口 5001）"
 
 # ── 重载并启用 ─────────────────────────────────────────
 
 systemctl daemon-reload
 
-for svc in binance-monitor binance-strategy binance-virtual; do
+for svc in binance-monitor binance-strategy binance-virtual binance-api; do
     systemctl enable  $svc
     systemctl restart $svc
     sleep 1
@@ -87,6 +108,40 @@ for svc in binance-monitor binance-strategy binance-virtual; do
     fi
 done
 
+# ── 配置 nginx ─────────────────────────────────────────
+
+echo ""
+echo "配置 nginx..."
+if command -v nginx &>/dev/null; then
+    NGINX_CONF="/etc/nginx/sites-available/binance-trader"
+    cat > "$NGINX_CONF" <<NGINX
+server {
+    listen 8080;
+    server_name _;
+
+    root ${PROJECT_DIR}/frontend/dist;
+    index index.html;
+
+    # 前端静态文件
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # 代理 Flask API
+    location /api/ {
+        proxy_pass http://127.0.0.1:5001;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+}
+NGINX
+
+    ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/binance-trader
+    nginx -t && systemctl reload nginx && echo "✅ nginx 配置完成，前端访问地址：http://<服务器IP>:8080"
+else
+    echo "⚠️  未检测到 nginx，请手动安装：apt install nginx"
+fi
+
 echo ""
 echo "======================================"
 echo " 安装完成！常用命令："
@@ -94,9 +149,12 @@ echo "======================================"
 echo " 查看状态：  systemctl status binance-monitor"
 echo "             systemctl status binance-strategy"
 echo "             systemctl status binance-virtual"
+echo "             systemctl status binance-api"
 echo " 查看日志：  tail -f ${PROJECT_DIR}/logs/binance-monitor.log"
 echo "             tail -f ${PROJECT_DIR}/logs/binance-strategy.log"
 echo "             tail -f ${PROJECT_DIR}/logs/binance-virtual.log"
+echo "             tail -f ${PROJECT_DIR}/logs/binance-api.log"
 echo " 停止服务：  systemctl stop binance-virtual"
 echo " 重启服务：  systemctl restart binance-strategy"
+echo " 前端页面：  http://<服务器IP>:8080"
 echo "======================================"
