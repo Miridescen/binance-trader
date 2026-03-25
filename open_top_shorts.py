@@ -29,9 +29,7 @@ log = logging.getLogger(__name__)
 OPEN_LOG_FILE    = os.path.join(os.path.dirname(__file__), "open_log.csv")
 EVENTS_LOG_FILE  = os.path.join(os.path.dirname(__file__), "events_log.csv")
 BATCH_LOG_FILE   = os.path.join(os.path.dirname(__file__), "batch_summary_log.csv")
-BATCH_FIELDS     = ["close_time", "symbol", "side",
-                    "unrealized_pnl", "roe_pct",
-                    "long_count", "long_pnl",
+BATCH_FIELDS     = ["close_time", "long_count", "long_pnl",
                     "short_count", "short_pnl", "total_pnl"]
 LOG_FIELDS      = ["open_time", "close_time", "symbol", "side",
                    "change_pct", "market_cap_usd", "circulating_supply",
@@ -218,48 +216,26 @@ def print_close_summary(positions: list):
 
 
 def save_close_summary_csv(positions: list, now: datetime):
-    """将本批次每个仓位盈亏及多空汇总写入 batch_summary_log.csv"""
+    """将本批次多空汇总写入 batch_summary_log.csv（每批次一行）"""
     longs  = [p for p in positions if float(p["positionAmt"]) > 0]
     shorts = [p for p in positions if float(p["positionAmt"]) < 0]
-
-    def pos_rows(ps, side_str, long_pnl, short_pnl):
-        rows = []
-        total_pnl = long_pnl + short_pnl
-        long_count  = len(longs)
-        short_count = len(shorts)
-        for p in ps:
-            amt    = float(p["positionAmt"])
-            entry  = float(p["entryPrice"])
-            mark   = float(p["markPrice"])
-            pnl    = float(p["unRealizedProfit"])
-            lev    = int(p["leverage"])
-            margin = entry * abs(amt) / lev if lev and entry else 0
-            roe    = pnl / margin * 100 if margin else 0
-            rows.append({
-                "close_time":    now.strftime("%Y-%m-%d %H:%M:%S"),
-                "symbol":        p["symbol"],
-                "side":          side_str,
-                "unrealized_pnl": f"{pnl:.4f}",
-                "roe_pct":       f"{roe:.2f}",
-                "long_count":    long_count,
-                "long_pnl":      f"{long_pnl:.4f}",
-                "short_count":   short_count,
-                "short_pnl":     f"{short_pnl:.4f}",
-                "total_pnl":     f"{total_pnl:.4f}",
-            })
-        return rows
-
     long_pnl  = sum(float(p["unRealizedProfit"]) for p in longs)
     short_pnl = sum(float(p["unRealizedProfit"]) for p in shorts)
-    rows = pos_rows(longs, "多", long_pnl, short_pnl) + pos_rows(shorts, "空", long_pnl, short_pnl)
 
     write_header = not os.path.exists(BATCH_LOG_FILE) or os.path.getsize(BATCH_LOG_FILE) == 0
     with open(BATCH_LOG_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=BATCH_FIELDS)
         if write_header:
             writer.writeheader()
-        writer.writerows(rows)
-    log.info(f"批次盈亏已写入 {BATCH_LOG_FILE}（{len(rows)} 条）")
+        writer.writerow({
+            "close_time":  now.strftime("%Y-%m-%d %H:%M:%S"),
+            "long_count":  len(longs),
+            "long_pnl":    f"{long_pnl:.4f}",
+            "short_count": len(shorts),
+            "short_pnl":   f"{short_pnl:.4f}",
+            "total_pnl":   f"{long_pnl + short_pnl:.4f}",
+        })
+    log.info(f"批次盈亏已写入 {BATCH_LOG_FILE}")
 
 
 def run_close():
