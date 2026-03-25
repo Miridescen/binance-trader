@@ -22,5 +22,9 @@ def read_csv(filename):
 def positions():
     return jsonify(read_csv("positions_log.csv"))
 
+@app.route("/api/open_log")
+def open_log():
+    return jsonify(read_csv("open_log.csv"))
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)
