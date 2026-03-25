@@ -1,15 +1,17 @@
 import { Layout, Menu } from 'antd'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
-import { FundOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { FundOutlined, UnorderedListOutlined, ExperimentOutlined } from '@ant-design/icons'
 import Positions from './pages/Positions'
 import OpenLog from './pages/OpenLog'
+import VirtualLog from './pages/VirtualLog'
 import 'antd/dist/reset.css'
 
 const { Header, Content } = Layout
 
 const menuItems = [
-  { key: '/',        icon: <FundOutlined />,        label: '持仓监控' },
-  { key: '/openlog', icon: <UnorderedListOutlined />, label: '开仓记录' },
+  { key: '/',           icon: <FundOutlined />,          label: '持仓监控' },
+  { key: '/openlog',    icon: <UnorderedListOutlined />,  label: '开仓记录' },
+  { key: '/virtuallog', icon: <ExperimentOutlined />,     label: '虚拟盘' },
 ]
 
 export default function App() {
@@ -34,7 +36,8 @@ export default function App() {
       <Content style={{ padding: 24 }}>
         <Routes>
           <Route path="/"        element={<Positions />} />
-          <Route path="/openlog" element={<OpenLog />} />
+          <Route path="/openlog"    element={<OpenLog />} />
+          <Route path="/virtuallog" element={<VirtualLog />} />
         </Routes>
       </Content>
     </Layout>
