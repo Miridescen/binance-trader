@@ -30,5 +30,9 @@ def open_log():
 def virtual_log():
     return jsonify(read_csv("virtual_open_log.csv"))
 
+@app.route("/api/positions_detail")
+def positions_detail():
+    return jsonify(read_csv("positions_detail_log.csv"))
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)
