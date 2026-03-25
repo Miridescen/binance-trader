@@ -53,6 +53,7 @@ export default function Positions() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 24 })
 
   const fetchData = async () => {
     setLoading(true)
@@ -114,7 +115,13 @@ export default function Positions() {
       <Card size="small">
         <Spin spinning={loading}>
           <Table columns={columns} dataSource={data}
-            pagination={{ pageSize: 24, showSizeChanger: true }}
+            pagination={{
+              ...pagination,
+              showSizeChanger: true,
+              pageSizeOptions: [10, 24, 50, 100],
+              showTotal: total => `共 ${total} 条`,
+              onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
+            }}
             scroll={{ x: 900 }} size="small"
             rowClassName={record => {
               const pnl = parseFloat(record.total_pnl)

@@ -131,6 +131,7 @@ const columns = [
 export default function OpenLog() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
 
   useEffect(() => {
     axios.get('/api/open_log').then(res => {
@@ -201,7 +202,13 @@ export default function OpenLog() {
           <Table
             columns={columns}
             dataSource={data}
-            pagination={{ pageSize: 20, showSizeChanger: true }}
+            pagination={{
+              ...pagination,
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50, 100],
+              showTotal: total => `共 ${total} 条`,
+              onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
+            }}
             scroll={{ x: 1200 }}
             size="small"
             rowClassName={record => {
