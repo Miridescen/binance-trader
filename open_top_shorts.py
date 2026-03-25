@@ -174,6 +174,44 @@ def _patch_close_commissions(commissions: dict):
     _write_log(rows)
 
 
+def print_close_summary(positions: list):
+    """平仓前打印本批次多单/空单盈亏汇总"""
+    longs  = [p for p in positions if float(p["positionAmt"]) > 0]
+    shorts = [p for p in positions if float(p["positionAmt"]) < 0]
+
+    def calc(ps):
+        total_pnl = sum(float(p["unRealizedProfit"]) for p in ps)
+        details = []
+        for p in sorted(ps, key=lambda x: float(x["unRealizedProfit"]), reverse=True):
+            amt    = float(p["positionAmt"])
+            entry  = float(p["entryPrice"])
+            mark   = float(p["markPrice"])
+            pnl    = float(p["unRealizedProfit"])
+            lev    = int(p["leverage"])
+            margin = entry * abs(amt) / lev if lev and entry else 0
+            roe    = pnl / margin * 100 if margin else 0
+            details.append((p["symbol"], pnl, roe))
+        return total_pnl, details
+
+    long_total,  long_details  = calc(longs)
+    short_total, short_details = calc(shorts)
+    grand_total = long_total + short_total
+
+    sep = "=" * 60
+    print(sep)
+    print(f"  【本批次收益汇总】{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(sep)
+    print(f"  多单（{len(longs):>2} 笔）总盈亏：{long_total:>+10.2f} USDT")
+    for sym, pnl, roe in long_details:
+        print(f"    {sym:<16} {pnl:>+8.2f} USDT   ROE {roe:>+7.1f}%")
+    print(f"  空单（{len(shorts):>2} 笔）总盈亏：{short_total:>+10.2f} USDT")
+    for sym, pnl, roe in short_details:
+        print(f"    {sym:<16} {pnl:>+8.2f} USDT   ROE {roe:>+7.1f}%")
+    print(sep)
+    print(f"  本批次总盈亏：{grand_total:>+.2f} USDT")
+    print(sep)
+
+
 def run_close():
     log.info("=" * 50)
     log.info("【平仓开始】")
@@ -182,6 +220,7 @@ def run_close():
     positions = auth_get("/fapi/v2/positionRisk")
     active    = [p for p in positions if float(p["positionAmt"]) != 0]
     if active:
+        print_close_summary(active)
         save_close_log(active, datetime.now())
     log.info("撤销所有挂单...")
     cancel_all_open_orders()
