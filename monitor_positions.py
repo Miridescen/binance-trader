@@ -12,10 +12,13 @@ from datetime import datetime
 from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode
 
 LOG_FILE        = os.path.join(os.path.dirname(__file__), "positions_log.csv")
+DETAIL_LOG_FILE = os.path.join(os.path.dirname(__file__), "positions_detail_log.csv")
 EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
 EVENTS_FIELDS   = ["time", "event", "detail"]
+DETAIL_FIELDS   = ["time", "symbol", "side", "entry_price", "mark_price",
+                   "position_amt", "unrealized_pnl", "roe_pct"]
 
-STOP_LOSS_ROE_PCT = -120  # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约40%
+STOP_LOSS_ROE_PCT = -80   # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约27%
 CHECK_INTERVAL    = 60    # 止损检查间隔（秒）
 
 logging.basicConfig(
@@ -195,6 +198,35 @@ def save_csv(positions: list, balance: float, now: datetime, funding_fee: float 
         })
 
 
+# ── 仓位明细 CSV ──────────────────────────────────────
+
+def save_detail_csv(positions: list, now: datetime):
+    """每小时写入每个仓位的详细盈亏到 positions_detail_log.csv"""
+    write_header = not os.path.exists(DETAIL_LOG_FILE) or os.path.getsize(DETAIL_LOG_FILE) == 0
+    with open(DETAIL_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=DETAIL_FIELDS)
+        if write_header:
+            writer.writeheader()
+        for p in positions:
+            amt      = float(p["positionAmt"])
+            entry    = float(p["entryPrice"])
+            mark     = float(p["markPrice"])
+            pnl      = float(p["unRealizedProfit"])
+            leverage = int(p["leverage"])
+            margin   = entry * abs(amt) / leverage if leverage and entry else 0
+            roe      = pnl / margin * 100 if margin else 0
+            writer.writerow({
+                "time":          now.strftime("%Y-%m-%d %H:%M:%S"),
+                "symbol":        p["symbol"],
+                "side":          "多" if amt > 0 else "空",
+                "entry_price":   f"{entry:.6f}",
+                "mark_price":    f"{mark:.6f}",
+                "position_amt":  f"{abs(amt):.4f}",
+                "unrealized_pnl": f"{pnl:.4f}",
+                "roe_pct":       f"{roe:.2f}",
+            })
+
+
 # ── 主循环 ─────────────────────────────────────────────
 
 def collect_and_report():
@@ -210,6 +242,7 @@ def collect_and_report():
         funding_fee = 0.0
     print_report(positions, balance, now, funding_fee)
     save_csv(positions, balance, now, funding_fee)
+    save_detail_csv(positions, now)
 
 def main():
     log.info(f"持仓监控启动  止损线：ROE ≤ {STOP_LOSS_ROE_PCT}%  检查间隔：{CHECK_INTERVAL}s")

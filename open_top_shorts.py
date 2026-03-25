@@ -38,7 +38,7 @@ EVENTS_FIELDS   = ["time", "event", "detail"]
 
 LEVERAGE             = 3
 MARGIN_PER_POS       = 10
-TOP_N                = 10
+TOP_N                = 20
 CANDIDATE_BUFFER     = 8        # 拉取 TOP_N * N 倍候选，过滤无市值后取前 TOP_N
 MIN_VOLUME           = 10_000_000
 ORDER_CHECK_INTERVAL = 60
