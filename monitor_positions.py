@@ -1,5 +1,6 @@
 """
-监控币安合约账户持仓盈亏，每小时整点统计一次
+监控币安合约账户持仓盈亏，每小时整点统计一次；
+额外在 08:50（平仓前）和 09:30（开仓后）各做一次特殊快照。
 - 终端：按币种展示详细表格
 - 日志：追加写入 positions_log.csv（多单/空单分别统计）
 """
@@ -18,8 +19,9 @@ EVENTS_FIELDS   = ["time", "event", "detail"]
 DETAIL_FIELDS   = ["time", "symbol", "side", "entry_price", "mark_price",
                    "position_amt", "unrealized_pnl", "roe_pct"]
 
-STOP_LOSS_ROE_PCT = -80   # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约27%
-CHECK_INTERVAL    = 60    # 止损检查间隔（秒）
+STOP_LOSS_ROE_PCT = -80           # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约27%
+CHECK_INTERVAL    = 60            # 止损检查间隔（秒）
+SPECIAL_SNAPSHOTS = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -247,9 +249,11 @@ def collect_and_report():
 def main():
     log.info(f"持仓监控启动  止损线：ROE ≤ {STOP_LOSS_ROE_PCT}%  检查间隔：{CHECK_INTERVAL}s")
     log.info(f"持仓日志：{LOG_FILE}")
+    log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
-    hedge            = is_hedge_mode()
-    last_report_hour = -1
+    hedge              = is_hedge_mode()
+    last_report_hour   = -1
+    reported_specials  = set()   # 记录当天已触发的特殊快照 (hour, minute)
 
     # 启动时立即统计一次
     try:
@@ -267,6 +271,20 @@ def main():
             check_stop_loss(positions, hedge)
         except Exception as e:
             log.error(f"止损检查失败：{e}")
+
+        # 每天 0 点重置特殊快照记录
+        if now.hour == 0 and now.minute < 1:
+            reported_specials.clear()
+
+        # 特殊时间点快照（08:50 平仓前 / 09:30 开仓后）
+        key = (now.hour, now.minute)
+        if key in SPECIAL_SNAPSHOTS and key not in reported_specials:
+            try:
+                log.info(f"【特殊快照】{now.hour:02d}:{now.minute:02d}")
+                collect_and_report()
+                reported_specials.add(key)
+            except Exception as e:
+                log.error(f"特殊快照失败：{e}")
 
         # 每小时整点输出报告
         if now.hour != last_report_hour:

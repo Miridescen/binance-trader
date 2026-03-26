@@ -50,7 +50,7 @@ MIN_VOLUME           = 10_000_000
 ORDER_CHECK_INTERVAL = 60
 MAX_RETRIES          = 10
 CLOSE_HOUR, CLOSE_MINUTE = 8, 50
-OPEN_HOUR,  OPEN_MINUTE  = 9, 0
+OPEN_HOUR,  OPEN_MINUTE  = 9, 5
 
 
 # ── 格式工具 ───────────────────────────────────────────
