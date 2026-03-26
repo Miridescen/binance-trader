@@ -39,7 +39,10 @@ def positions_detail():
 def realtime():
     try:
         account = auth_get("/fapi/v2/account")
-        balance = float(account.get("totalWalletBalance", 0))
+        balance = next(
+            (float(a["marginBalance"]) for a in account.get("assets", []) if a["asset"] == "USDT"),
+            float(account.get("totalMarginBalance", 0))
+        )
 
         positions = [p for p in account.get("positions", []) if float(p["positionAmt"]) != 0]
         long_pnl  = sum(float(p["unrealizedProfit"]) for p in positions if float(p["positionAmt"]) > 0)
