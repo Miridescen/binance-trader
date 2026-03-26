@@ -52,63 +52,81 @@ const columns = [
 export default function Positions() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [lastUpdated, setLastUpdated] = useState(null)
+  const [rt, setRt] = useState(null)           // 实时数据
+  const [rtUpdated, setRtUpdated] = useState(null)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 24 })
 
+  // 历史表格数据（每分钟刷新）
   const fetchData = async () => {
     setLoading(true)
     try {
       const res = await axios.get('/api/positions')
       setData(res.data.map((r, i) => ({ ...r, key: i })).reverse())
-      setLastUpdated(new Date().toLocaleTimeString())
     } finally {
       setLoading(false)
     }
   }
 
+  // 实时统计卡片（每5分钟刷新）
+  const fetchRealtime = async () => {
+    try {
+      const res = await axios.get('/api/realtime')
+      if (!res.data.error) {
+        setRt(res.data)
+        setRtUpdated(new Date().toLocaleTimeString())
+      }
+    } catch (_) {}
+  }
+
   useEffect(() => {
     fetchData()
-    const timer = setInterval(fetchData, 60_000)
-    return () => clearInterval(timer)
+    fetchRealtime()
+    const t1 = setInterval(fetchData, 60_000)
+    const t2 = setInterval(fetchRealtime, 300_000)
+    return () => { clearInterval(t1); clearInterval(t2) }
   }, [])
 
-  const latest = data[0] || {}
-  const balance  = parseFloat(latest.balance_usdt || 0)
-  const totalPnl = parseFloat(latest.total_pnl || 0)
-  const longPnl  = parseFloat(latest.long_pnl || 0)
-  const shortPnl = parseFloat(latest.short_pnl || 0)
+  const balance   = rt ? rt.balance   : 0
+  const totalPnl  = rt ? rt.total_pnl : 0
+  const longPnl   = rt ? rt.long_pnl  : 0
+  const shortPnl  = rt ? rt.short_pnl : 0
 
   return (
     <div>
       <div style={{ textAlign: 'right', marginBottom: 8, color: '#999', fontSize: 13 }}>
-        <ReloadOutlined style={{ cursor: 'pointer', marginRight: 6 }} onClick={fetchData} />
-        最后更新：{lastUpdated || '-'}
+        <ReloadOutlined style={{ cursor: 'pointer', marginRight: 6 }} onClick={fetchRealtime} />
+        实时数据更新：{rtUpdated || '-'}
       </div>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="账户余额" value={balance.toFixed(2)} suffix="USDT" valueStyle={{ color: '#1677ff' }} />
+            <Statistic title="账户余额（实时）" value={balance.toFixed(2)} suffix="USDT"
+              valueStyle={{ color: '#1677ff' }}
+              formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="当前总浮盈亏" value={Math.abs(totalPnl).toFixed(2)}
+            <Statistic title="总浮盈亏（实时）" value={Math.abs(totalPnl).toFixed(2)}
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} suffix="USDT"
-              valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }} />
+              valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }}
+              formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="多单浮盈亏" value={Math.abs(longPnl).toFixed(2)}
+            <Statistic title="多单浮盈亏（实时）" value={Math.abs(longPnl).toFixed(2)}
               prefix={longPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} suffix="USDT"
-              valueStyle={{ color: longPnl >= 0 ? '#3f8600' : '#cf1322' }} />
+              valueStyle={{ color: longPnl >= 0 ? '#3f8600' : '#cf1322' }}
+              formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="空单浮盈亏" value={Math.abs(shortPnl).toFixed(2)}
+            <Statistic title="空单浮盈亏（实时）" value={Math.abs(shortPnl).toFixed(2)}
               prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} suffix="USDT"
-              valueStyle={{ color: shortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
+              valueStyle={{ color: shortPnl >= 0 ? '#3f8600' : '#cf1322' }}
+              formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
       </Row>

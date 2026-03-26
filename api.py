@@ -5,6 +5,7 @@ import csv
 import os
 from flask import Flask, jsonify
 from flask_cors import CORS
+from binance_client import auth_get
 
 app = Flask(__name__)
 CORS(app)
@@ -33,6 +34,30 @@ def virtual_log():
 @app.route("/api/positions_detail")
 def positions_detail():
     return jsonify(read_csv("positions_detail_log.csv"))
+
+@app.route("/api/realtime")
+def realtime():
+    try:
+        account = auth_get("/fapi/v2/account")
+        balance = float(account.get("totalWalletBalance", 0))
+
+        positions = [p for p in account.get("positions", []) if float(p["positionAmt"]) != 0]
+        long_pnl  = sum(float(p["unrealizedProfit"]) for p in positions if float(p["positionAmt"]) > 0)
+        short_pnl = sum(float(p["unrealizedProfit"]) for p in positions if float(p["positionAmt"]) < 0)
+        total_pnl = long_pnl + short_pnl
+        long_count  = sum(1 for p in positions if float(p["positionAmt"]) > 0)
+        short_count = sum(1 for p in positions if float(p["positionAmt"]) < 0)
+
+        return jsonify({
+            "balance":     round(balance, 2),
+            "total_pnl":   round(total_pnl, 2),
+            "long_pnl":    round(long_pnl, 2),
+            "short_pnl":   round(short_pnl, 2),
+            "long_count":  long_count,
+            "short_count": short_count,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)
