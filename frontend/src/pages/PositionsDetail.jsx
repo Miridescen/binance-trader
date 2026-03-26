@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Table, Card, Tag, Spin } from 'antd'
+import { useEffect, useState, useMemo } from 'react'
+import { Table, Card, Tag, Spin, DatePicker, Select, Space } from 'antd'
+import dayjs from 'dayjs'
 import axios from 'axios'
 
 function pnlColor(val) {
@@ -101,6 +102,8 @@ export default function PositionsDetail() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
+  const [filterDate, setFilterDate] = useState(null)   // dayjs 对象
+  const [filterTime, setFilterTime] = useState(null)   // 具体时间字符串，如 "11:34:50"
 
   useEffect(() => {
     axios.get('/api/positions_detail').then(res => {
@@ -112,12 +115,60 @@ export default function PositionsDetail() {
     }).finally(() => setLoading(false))
   }, [])
 
+  // 选中日期对应的所有时间快照点
+  const timeOptions = useMemo(() => {
+    if (!filterDate) return []
+    const dateStr = filterDate.format('YYYY-MM-DD')
+    const times = [...new Set(
+      data.filter(r => r.time.startsWith(dateStr)).map(r => r.time.slice(11))
+    )].sort()
+    return times.map(t => ({ label: t, value: t }))
+  }, [filterDate, data])
+
+  // 筛选后的数据
+  const filtered = useMemo(() => {
+    if (!filterDate) return data
+    const dateStr = filterDate.format('YYYY-MM-DD')
+    return data.filter(r => {
+      if (!r.time.startsWith(dateStr)) return false
+      if (filterTime && r.time.slice(11) !== filterTime) return false
+      return true
+    })
+  }, [data, filterDate, filterTime])
+
+  const handleDateChange = (val) => {
+    setFilterDate(val)
+    setFilterTime(null)
+    setPagination(p => ({ ...p, current: 1 }))
+  }
+
+  const handleTimeChange = (val) => {
+    setFilterTime(val)
+    setPagination(p => ({ ...p, current: 1 }))
+  }
+
   return (
     <Card size="small">
+      <Space style={{ marginBottom: 12 }}>
+        <DatePicker
+          placeholder="选择日期"
+          onChange={handleDateChange}
+          allowClear
+        />
+        <Select
+          placeholder="选择时间快照"
+          options={timeOptions}
+          value={filterTime}
+          onChange={handleTimeChange}
+          allowClear
+          disabled={!filterDate}
+          style={{ width: 160 }}
+        />
+      </Space>
       <Spin spinning={loading}>
         <Table
           columns={columns}
-          dataSource={data}
+          dataSource={filtered}
           pagination={{
             ...pagination,
             showSizeChanger: true,
