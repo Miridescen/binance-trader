@@ -1,8 +1,8 @@
 """
 每天定时策略：
   08:50 → 撤销所有未成交限价单 + 市价平掉所有持仓
-  09:00 → 涨幅榜 TOP10 开 3 倍限价空单，每单保证金 10 USDT
-         跌幅榜 TOP10 开 3 倍限价多单，每单保证金 10 USDT
+  09:00 → 涨幅榜 TOP20（涨幅 >= 5%）开 3 倍限价空单，每单保证金 10 USDT
+         跌幅榜 TOP10（跌幅 >= 8%）开 3 倍限价多单，每单保证金 10 USDT
   未成交则每 60 秒换价重下，最多 10 次，超过后改市价单
 """
 
@@ -41,8 +41,11 @@ EVENTS_FIELDS   = ["time", "event", "detail"]
 
 LEVERAGE             = 3
 MARGIN_PER_POS       = 10
-TOP_N                = 20
-CANDIDATE_BUFFER     = 6        # 拉取 TOP_N * N 倍候选，过滤无市值后取前 TOP_N
+TOP_N_SHORT          = 20       # 空单最多开仓数
+TOP_N_LONG           = 10       # 多单最多开仓数
+MIN_CHANGE_SHORT     = 5.0      # 空单入场最低涨幅（%）
+MIN_CHANGE_LONG      = 8.0      # 多单入场最低跌幅（%）
+CANDIDATE_BUFFER     = 6        # 候选池倍数，过滤无市值后取前 TOP_N_SHORT/LONG
 MIN_VOLUME           = 10_000_000
 ORDER_CHECK_INTERVAL = 60
 MAX_RETRIES          = 10
@@ -333,7 +336,7 @@ def place_market_order(symbol: str, info: dict, side: str, hedge: bool):
 def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, hedge: bool):
     direction = "涨幅" if side == "SELL" else "跌幅"
     log.info(f"── {label} ──")
-    log.info(f"{direction}榜 TOP{TOP_N}：{[t['symbol'] for t in tickers]}")
+    log.info(f"{direction}榜 TOP{len(tickers)}：{[t['symbol'] for t in tickers]}")
 
     # 第一轮下单
     pending = {}
@@ -345,7 +348,7 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
             log.warning(f"[{i}/{TOP_N}] {symbol} 无交易对信息，跳过")
             continue
 
-        log.info(f"[{i:>2}/{TOP_N}] {symbol} {direction}幅 {pct:>+.2f}%")
+        log.info(f"[{i:>2}/{len(tickers)}] {symbol} {direction}幅 {pct:>+.2f}%")
         if not set_leverage_verified(symbol):
             log.warning(f"  {symbol} 杠杆设置失败，跳过此币种")
             continue
@@ -548,10 +551,11 @@ def run_open():
     tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
     hedge = is_hedge_mode()
 
-    # 取 2 倍候选池，提前拉市值用于过滤无市值币
-    n = TOP_N * CANDIDATE_BUFFER
-    gainer_pool = tickers[:n]
-    loser_pool  = tickers[-n:][::-1]
+    # 候选池：取最大 TOP_N * CANDIDATE_BUFFER 倍，提前拉市值用于过滤无市值币
+    n_short = TOP_N_SHORT * CANDIDATE_BUFFER
+    n_long  = TOP_N_LONG  * CANDIDATE_BUFFER
+    gainer_pool = tickers[:n_short]
+    loser_pool  = tickers[-n_long:][::-1]
 
     log.info("正在从 CoinGecko 获取市值/流通量数据（过滤无市值币）...")
     try:
@@ -560,12 +564,17 @@ def run_open():
         log.warning(f"CoinGecko 数据获取失败，不过滤市值：{e}")
         market_data = {}
 
-    if market_data:
-        def has_mcap(t):
-            return bool(market_data.get(t["symbol"], {}).get("market_cap"))
+    def has_mcap(t):
+        return bool(market_data.get(t["symbol"], {}).get("market_cap"))
 
-        top_gainers = [t for t in gainer_pool if has_mcap(t)][:TOP_N]
-        top_losers  = [t for t in loser_pool  if has_mcap(t)][:TOP_N]
+    if market_data:
+        # 过滤无市值，再按涨跌幅阈值筛选，最后取前 N 个
+        top_gainers = [t for t in gainer_pool
+                       if has_mcap(t) and float(t["priceChangePercent"]) >= MIN_CHANGE_SHORT
+                       ][:TOP_N_SHORT]
+        top_losers  = [t for t in loser_pool
+                       if has_mcap(t) and float(t["priceChangePercent"]) <= -MIN_CHANGE_LONG
+                       ][:TOP_N_LONG]
 
         skipped = [t["symbol"] for t in gainer_pool + loser_pool if not has_mcap(t)]
         if skipped:
@@ -573,8 +582,13 @@ def run_open():
             log.info(detail)
             log_event("FILTER_NO_MCAP", detail)
     else:
-        top_gainers = gainer_pool[:TOP_N]
-        top_losers  = loser_pool[:TOP_N]
+        top_gainers = [t for t in gainer_pool
+                       if float(t["priceChangePercent"]) >= MIN_CHANGE_SHORT][:TOP_N_SHORT]
+        top_losers  = [t for t in loser_pool
+                       if float(t["priceChangePercent"]) <= -MIN_CHANGE_LONG][:TOP_N_LONG]
+
+    log.info(f"空单候选：{len(top_gainers)} 个（涨幅 >= {MIN_CHANGE_SHORT}%，上限 {TOP_N_SHORT}）")
+    log.info(f"多单候选：{len(top_losers)} 个（跌幅 >= {MIN_CHANGE_LONG}%，上限 {TOP_N_LONG}）")
 
     log.info(f"持仓模式：{'双向（对冲）' if hedge else '单向'}")
 
@@ -643,7 +657,7 @@ def wait_until(hour: int, minute: int):
 def main():
     log.info("策略定时器启动")
     log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 平仓")
-    log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 开单（涨幅榜空单 + 跌幅榜多单）")
+    log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 开单（空单 TOP{TOP_N_SHORT} 涨幅>={MIN_CHANGE_SHORT}% / 多单 TOP{TOP_N_LONG} 跌幅>={MIN_CHANGE_LONG}%）")
 
     while True:
         wait_until(CLOSE_HOUR, CLOSE_MINUTE)
