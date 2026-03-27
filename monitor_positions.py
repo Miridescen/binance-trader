@@ -223,7 +223,7 @@ def collect_and_report():
 
 def main():
     log.info(f"持仓监控启动  止损线：ROE ≤ {STOP_LOSS_ROE_PCT}%  检查间隔：{CHECK_INTERVAL}s")
-    log.info(f"持仓日志：{LOG_FILE}")
+    log.info(f"持仓日志：SQLite 数据库")
     log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
     hedge              = is_hedge_mode()
