@@ -6,18 +6,11 @@
 """
 
 import os
-import csv
 import time
 import logging
 from datetime import datetime
 from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode
-
-LOG_FILE        = os.path.join(os.path.dirname(__file__), "positions_log.csv")
-DETAIL_LOG_FILE = os.path.join(os.path.dirname(__file__), "positions_detail_log.csv")
-EVENTS_LOG_FILE = os.path.join(os.path.dirname(__file__), "events_log.csv")
-EVENTS_FIELDS   = ["time", "event", "detail"]
-DETAIL_FIELDS   = ["time", "symbol", "side", "entry_price", "mark_price",
-                   "position_amt", "unrealized_pnl", "roe_pct"]
+import db
 
 STOP_LOSS_ROE_PCT = -80           # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约27%
 CHECK_INTERVAL    = 60            # 止损检查间隔（秒）
@@ -48,16 +41,7 @@ def get_account_balance() -> float:
 # ── 止损 ───────────────────────────────────────────────
 
 def log_event(event: str, detail: str):
-    write_header = not os.path.exists(EVENTS_LOG_FILE) or os.path.getsize(EVENTS_LOG_FILE) == 0
-    with open(EVENTS_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=EVENTS_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerow({
-            "time":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "event":  event,
-            "detail": detail,
-        })
+    db.insert_event(event, detail)
 
 def close_position(p: dict, hedge: bool) -> bool:
     """市价平掉单个持仓，成功返回 True"""
@@ -178,55 +162,46 @@ def print_report(positions: list, balance: float, now: datetime, funding_fee: fl
 
 # ── CSV 日志 ───────────────────────────────────────────
 
-CSV_FIELDS = ["time", "balance_usdt", "long_count", "long_pnl",
-              "short_count", "short_pnl", "total_pnl", "funding_fee"]
-
 def save_csv(positions: list, balance: float, now: datetime, funding_fee: float = 0.0):
     s = calc_stats(positions)
-    write_header = not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0
-    with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerow({
-            "time":         now.strftime("%Y-%m-%d %H:%M:%S"),
-            "balance_usdt": f"{balance:.2f}",
-            "long_count":   s["long_count"],
-            "long_pnl":     f"{s['long_pnl']:.2f}",
-            "short_count":  s["short_count"],
-            "short_pnl":    f"{s['short_pnl']:.2f}",
-            "total_pnl":    f"{s['total_pnl']:.2f}",
-            "funding_fee":  f"{funding_fee:.4f}",
-        })
+    db.insert_positions_log({
+        "time":         now.strftime("%Y-%m-%d %H:%M:%S"),
+        "balance_usdt": balance,
+        "long_count":   s["long_count"],
+        "long_pnl":     s["long_pnl"],
+        "short_count":  s["short_count"],
+        "short_pnl":    s["short_pnl"],
+        "total_pnl":    s["total_pnl"],
+        "funding_fee":  funding_fee,
+    })
 
 
 # ── 仓位明细 CSV ──────────────────────────────────────
 
 def save_detail_csv(positions: list, now: datetime):
-    """每小时写入每个仓位的详细盈亏到 positions_detail_log.csv"""
-    write_header = not os.path.exists(DETAIL_LOG_FILE) or os.path.getsize(DETAIL_LOG_FILE) == 0
-    with open(DETAIL_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=DETAIL_FIELDS)
-        if write_header:
-            writer.writeheader()
-        for p in positions:
-            amt      = float(p["positionAmt"])
-            entry    = float(p["entryPrice"])
-            mark     = float(p["markPrice"])
-            pnl      = float(p["unRealizedProfit"])
-            leverage = int(p["leverage"])
-            margin   = entry * abs(amt) / leverage if leverage and entry else 0
-            roe      = pnl / margin * 100 if margin else 0
-            writer.writerow({
-                "time":          now.strftime("%Y-%m-%d %H:%M:%S"),
-                "symbol":        p["symbol"],
-                "side":          "多" if amt > 0 else "空",
-                "entry_price":   f"{entry:.6f}",
-                "mark_price":    f"{mark:.6f}",
-                "position_amt":  f"{abs(amt):.4f}",
-                "unrealized_pnl": f"{pnl:.4f}",
-                "roe_pct":       f"{roe:.2f}",
-            })
+    """每小时写入每个仓位的详细盈亏到数据库"""
+    ts = now.strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+    for p in positions:
+        amt      = float(p["positionAmt"])
+        entry    = float(p["entryPrice"])
+        mark     = float(p["markPrice"])
+        pnl      = float(p["unRealizedProfit"])
+        leverage = int(p["leverage"])
+        margin   = entry * abs(amt) / leverage if leverage and entry else 0
+        roe      = pnl / margin * 100 if margin else 0
+        rows.append({
+            "time":            ts,
+            "symbol":          p["symbol"],
+            "side":            "多" if amt > 0 else "空",
+            "entry_price":     entry,
+            "mark_price":      mark,
+            "position_amt":    abs(amt),
+            "unrealized_pnl":  pnl,
+            "roe_pct":         roe,
+        })
+    if rows:
+        db.insert_positions_detail(rows)
 
 
 # ── 主循环 ─────────────────────────────────────────────

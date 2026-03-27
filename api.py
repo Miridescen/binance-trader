@@ -1,39 +1,38 @@
 """
-简单的 Flask API，为前端提供 CSV 数据
+Flask API，为前端提供数据（从 SQLite 数据库读取）
 """
-import csv
 import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 from binance_client import auth_get
+import db
 
 app = Flask(__name__)
 CORS(app)
 
-BASE_DIR = os.path.dirname(__file__)
 
-def read_csv(filename):
-    path = os.path.join(BASE_DIR, filename)
-    if not os.path.exists(path):
-        return []
-    with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+def _strip_id(rows):
+    """移除 id 字段，保持与原 CSV API 返回格式一致"""
+    for r in rows:
+        r.pop("id", None)
+    return rows
+
 
 @app.route("/api/positions")
 def positions():
-    return jsonify(read_csv("positions_log.csv"))
+    return jsonify(_strip_id(db.get_positions_log_all()))
 
 @app.route("/api/open_log")
 def open_log():
-    return jsonify(read_csv("open_log.csv"))
+    return jsonify(_strip_id(db.get_open_log_all()))
 
 @app.route("/api/virtual_log")
 def virtual_log():
-    return jsonify(read_csv("virtual_open_log.csv"))
+    return jsonify(_strip_id(db.get_virtual_log_all()))
 
 @app.route("/api/positions_detail")
 def positions_detail():
-    return jsonify(read_csv("positions_detail_log.csv"))
+    return jsonify(_strip_id(db.get_positions_detail_all()))
 
 @app.route("/api/realtime")
 def realtime():

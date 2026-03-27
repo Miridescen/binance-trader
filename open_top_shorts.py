@@ -6,7 +6,6 @@
   未成交则每 60 秒换价重下，最多 10 次，超过后改市价单
 """
 
-import csv
 import math
 import os
 import time
@@ -18,6 +17,7 @@ from binance_client import (
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
     get_commissions_by_symbol, get_oi_changes, get_long_short_ratios,
 )
+import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,18 +26,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-OPEN_LOG_FILE    = os.path.join(os.path.dirname(__file__), "open_log.csv")
-EVENTS_LOG_FILE  = os.path.join(os.path.dirname(__file__), "events_log.csv")
-BATCH_LOG_FILE   = os.path.join(os.path.dirname(__file__), "batch_summary_log.csv")
-BATCH_FIELDS     = ["close_time", "long_count", "long_pnl",
-                    "short_count", "short_pnl", "total_pnl"]
-LOG_FIELDS      = ["open_time", "close_time", "symbol", "side",
-                   "change_pct", "market_cap_usd", "circulating_supply",
-                   "btc_change_pct", "symbol_funding_rate", "oi_change_pct",
-                   "long_short_ratio", "open_commission",
-                   "entry_price", "close_price", "position_amt",
-                   "unrealized_pnl", "roe_pct", "leverage", "close_commission"]
-EVENTS_FIELDS   = ["time", "event", "detail"]
+TOP_N = max(TOP_N_SHORT, TOP_N_LONG)  # 兼容旧引用
 
 LEVERAGE             = 3
 MARGIN_PER_POS       = 10
@@ -116,9 +105,8 @@ def close_all_positions(hedge: bool):
     log.info(f"共平仓 {closed}/{len(active)} 个持仓")
 
 def save_close_log(positions: list, now: datetime):
-    """平仓前把收益数据回填到对应的开仓行；无匹配行则新增一行"""
-    ts   = now.strftime("%Y-%m-%d %H:%M:%S")
-    rows = _read_log()
+    """平仓前把收益数据回填到数据库对应的开仓行；无匹配行则新增一行"""
+    ts = now.strftime("%Y-%m-%d %H:%M:%S")
 
     for p in positions:
         amt      = float(p["positionAmt"])
@@ -131,53 +119,24 @@ def save_close_log(positions: list, now: datetime):
         sym      = p["symbol"]
 
         close_data = {
-            "close_time":    ts,
-            "entry_price":   f"{entry:.6f}",
-            "close_price":   f"{mark:.6f}",
-            "position_amt":  f"{abs(amt):.6f}",
-            "unrealized_pnl": f"{pnl:.4f}",
-            "roe_pct":       f"{roe:.4f}",
-            "leverage":      leverage,
+            "close_time":     ts,
+            "entry_price":    entry,
+            "close_price":    mark,
+            "position_amt":   abs(amt),
+            "unrealized_pnl": pnl,
+            "roe_pct":        roe,
+            "leverage":       leverage,
         }
 
-        # 找最近一条同币种且未平仓的开仓行（open_time 最大的那条）
-        candidates = [
-            (i, row) for i, row in enumerate(rows)
-            if row["symbol"] == sym and not row.get("close_time")
-        ]
-        matched = False
-        if candidates:
-            # 取 open_time 最新的一条，忽略更早的孤立未平仓行
-            best_i, best_row = max(candidates, key=lambda x: x[1].get("open_time", ""))
-            best_row.update(close_data)
-            matched = True
+        db.update_close_data(sym, "", close_data)
 
-        if not matched:
-            rows.append({
-                "open_time":          "",
-                "symbol":             sym,
-                "side":               "多" if amt > 0 else "空",
-                "change_pct":         "",
-                "market_cap_usd":     "",
-                "circulating_supply": "",
-                **close_data,
-            })
-
-    _write_log(rows)
-    log.info(f"上周期收益已回填到 {OPEN_LOG_FILE}（{len(positions)} 条）")
+    log.info(f"上周期收益已回填到数据库（{len(positions)} 条）")
 
 
 def _patch_close_commissions(commissions: dict):
-    """平仓后将手续费回填到当天 close_time 不为空、close_commission 为空的行"""
-    rows  = _read_log()
+    """平仓后将手续费回填到数据库"""
     today = datetime.now().strftime("%Y-%m-%d")
-    for row in rows:
-        sym = row.get("symbol", "")
-        if (sym in commissions
-                and row.get("close_time", "").startswith(today)
-                and not row.get("close_commission")):
-            row["close_commission"] = f"{commissions[sym]:.6f}"
-    _write_log(rows)
+    db.patch_close_commissions(commissions, today)
 
 
 def print_close_summary(positions: list):
@@ -219,26 +178,21 @@ def print_close_summary(positions: list):
 
 
 def save_close_summary_csv(positions: list, now: datetime):
-    """将本批次多空汇总写入 batch_summary_log.csv（每批次一行）"""
+    """将本批次多空汇总写入数据库（每批次一行）"""
     longs  = [p for p in positions if float(p["positionAmt"]) > 0]
     shorts = [p for p in positions if float(p["positionAmt"]) < 0]
     long_pnl  = sum(float(p["unRealizedProfit"]) for p in longs)
     short_pnl = sum(float(p["unRealizedProfit"]) for p in shorts)
 
-    write_header = not os.path.exists(BATCH_LOG_FILE) or os.path.getsize(BATCH_LOG_FILE) == 0
-    with open(BATCH_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=BATCH_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerow({
-            "close_time":  now.strftime("%Y-%m-%d %H:%M:%S"),
-            "long_count":  len(longs),
-            "long_pnl":    f"{long_pnl:.4f}",
-            "short_count": len(shorts),
-            "short_pnl":   f"{short_pnl:.4f}",
-            "total_pnl":   f"{long_pnl + short_pnl:.4f}",
-        })
-    log.info(f"批次盈亏已写入 {BATCH_LOG_FILE}")
+    db.insert_batch_summary({
+        "close_time":  now.strftime("%Y-%m-%d %H:%M:%S"),
+        "long_count":  len(longs),
+        "long_pnl":    long_pnl,
+        "short_count": len(shorts),
+        "short_pnl":   short_pnl,
+        "total_pnl":   long_pnl + short_pnl,
+    })
+    log.info("批次盈亏已写入数据库")
 
 
 def run_close():
@@ -406,59 +360,38 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
 
 
 def log_event(event: str, detail: str):
-    """向 events_log.csv 追加一条策略事件记录"""
-    write_header = not os.path.exists(EVENTS_LOG_FILE) or os.path.getsize(EVENTS_LOG_FILE) == 0
-    with open(EVENTS_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=EVENTS_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerow({
-            "time":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "event":  event,
-            "detail": detail,
-        })
-
-
-def _read_log() -> list:
-    if not os.path.exists(OPEN_LOG_FILE) or os.path.getsize(OPEN_LOG_FILE) == 0:
-        return []
-    with open(OPEN_LOG_FILE, "r", newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
-
-
-def _write_log(rows: list):
-    with open(OPEN_LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS, extrasaction="ignore", restval="")
-        writer.writeheader()
-        writer.writerows(rows)
+    """向 events_log 表追加一条策略事件记录"""
+    db.insert_event(event, detail)
 
 
 def save_open_csv(rows: list, now: datetime):
-    """将开单观察数据追加写入 open_log.csv（平仓字段留空待填）"""
-    ts       = now.strftime("%Y-%m-%d %H:%M:%S")
-    existing = _read_log()
+    """将开单观察数据写入数据库（平仓字段留空待填）"""
+    ts = now.strftime("%Y-%m-%d %H:%M:%S")
+    db_rows = []
     for row in rows:
-        existing.append({
+        db_rows.append({
             "open_time":           ts,
-            "close_time":          "",
+            "close_time":          None,
             "symbol":              row["symbol"],
             "side":                row["side"],
-            "change_pct":          row["change_pct"],
-            "market_cap_usd":      row["market_cap_usd"],
-            "circulating_supply":  row["circulating_supply"],
-            "btc_change_pct":      row.get("btc_change_pct", ""),
-            "symbol_funding_rate": row.get("symbol_funding_rate", ""),
-            "open_commission":     row.get("open_commission", ""),
-            "entry_price":         "",
-            "close_price":         "",
-            "position_amt":        "",
-            "unrealized_pnl":      "",
-            "roe_pct":             "",
-            "leverage":            "",
-            "close_commission":    "",
+            "change_pct":          float(row["change_pct"]) if row.get("change_pct") else None,
+            "market_cap_usd":      row.get("market_cap_usd"),
+            "circulating_supply":  row.get("circulating_supply"),
+            "btc_change_pct":      float(row["btc_change_pct"]) if row.get("btc_change_pct") else None,
+            "symbol_funding_rate": float(row["symbol_funding_rate"]) if row.get("symbol_funding_rate") else None,
+            "oi_change_pct":       float(row["oi_change_pct"]) if row.get("oi_change_pct") else None,
+            "long_short_ratio":    float(row["long_short_ratio"]) if row.get("long_short_ratio") else None,
+            "open_commission":     float(row["open_commission"]) if row.get("open_commission") else None,
+            "entry_price":         None,
+            "close_price":         None,
+            "position_amt":        None,
+            "unrealized_pnl":      None,
+            "roe_pct":             None,
+            "leverage":            None,
+            "close_commission":    None,
         })
-    _write_log(existing)
-    log.info(f"开单观察数据已写入 {OPEN_LOG_FILE}（{len(rows)} 条）")
+    db.insert_open_log(db_rows)
+    log.info(f"开单观察数据已写入数据库（{len(db_rows)} 条）")
 
 
 def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = None,

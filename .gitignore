@@ -18,6 +18,7 @@ env/
 logs/
 *.log
 *.jsonl
+trader.db
 
 # IDE
 .idea/

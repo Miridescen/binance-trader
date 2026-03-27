@@ -8,7 +8,6 @@
 用途：验证「过滤无市值币」优化效果的对照组
 """
 
-import csv
 import os
 import time
 import logging
@@ -18,6 +17,7 @@ from binance_client import (
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
     get_oi_changes, get_long_short_ratios,
 )
+import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,15 +36,6 @@ def fmt_large(n: float) -> str:
         return f"{n:.0f}"
     return "N/A"
 
-VIRTUAL_LOG_FILE = os.path.join(os.path.dirname(__file__), "virtual_open_log.csv")
-LOG_FIELDS = [
-    "open_time", "close_time", "symbol", "side",
-    "change_pct", "market_cap_usd", "circulating_supply", "has_mcap",
-    "btc_change_pct", "symbol_funding_rate", "oi_change_pct", "long_short_ratio",
-    "entry_price", "close_price",
-    "unrealized_pnl", "roe_pct",
-]
-
 LEVERAGE       = 3
 MARGIN_PER_POS = 10
 TOP_N          = 10
@@ -53,38 +44,19 @@ CLOSE_HOUR, CLOSE_MINUTE = 8, 50
 OPEN_HOUR,  OPEN_MINUTE  = 9, 0
 
 
-# ── CSV 读写 ───────────────────────────────────────────
-
-def _read_log() -> list:
-    if not os.path.exists(VIRTUAL_LOG_FILE) or os.path.getsize(VIRTUAL_LOG_FILE) == 0:
-        return []
-    with open(VIRTUAL_LOG_FILE, "r", newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
-
-
-def _write_log(rows: list):
-    with open(VIRTUAL_LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS, extrasaction="ignore", restval="")
-        writer.writeheader()
-        writer.writerows(rows)
-
-
 # ── 虚拟平仓 ───────────────────────────────────────────
 
 def virtual_close():
     log.info("【虚拟平仓开始】")
-    rows = _read_log()
+    unclosed = db.get_virtual_log_unclosed()
     now  = datetime.now()
     ts   = now.strftime("%Y-%m-%d %H:%M:%S")
     closed = 0
 
-    for row in rows:
-        if row.get("close_time"):
-            continue  # 已平仓
-
+    for row in unclosed:
         sym   = row["symbol"]
         side  = row["side"]
-        entry = float(row["entry_price"]) if row.get("entry_price") else None
+        entry = row["entry_price"]
         if entry is None:
             continue
 
@@ -94,7 +66,6 @@ def virtual_close():
             log.warning(f"  {sym} 获取标记价失败：{e}")
             continue
 
-        # 计算虚拟盈亏（名义 = margin * leverage）
         notional = MARGIN_PER_POS * LEVERAGE
         if side == "空":
             pnl = (entry - mark) / entry * notional
@@ -102,15 +73,16 @@ def virtual_close():
             pnl = (mark - entry) / entry * notional
         roe = pnl / MARGIN_PER_POS * 100
 
-        row["close_time"]    = ts
-        row["close_price"]   = f"{mark:.6f}"
-        row["unrealized_pnl"] = f"{pnl:.4f}"
-        row["roe_pct"]       = f"{roe:.4f}"
+        db.update_virtual_close(row["id"], {
+            "close_time":     ts,
+            "close_price":    mark,
+            "unrealized_pnl": pnl,
+            "roe_pct":        roe,
+        })
         closed += 1
         log.info(f"  {sym} {'空→买' if side=='空' else '多→卖'}  入场 {entry:.4f}  出场 {mark:.4f}  PnL {pnl:+.4f}  ROE {roe:+.1f}%")
         time.sleep(0.1)
 
-    _write_log(rows)
     log.info(f"【虚拟平仓完成】共平仓 {closed} 笔")
 
 
@@ -163,7 +135,6 @@ def virtual_open():
 
     now = datetime.now()
     ts  = now.strftime("%Y-%m-%d %H:%M:%S")
-    existing = _read_log()
     new_rows = []
 
     for label, tickers_group, side_str in [
@@ -184,7 +155,7 @@ def virtual_open():
             md       = market_data.get(sym, {})
             mc       = md.get("market_cap", 0)
             cs       = md.get("circulating_supply", 0)
-            has_mcap = "1" if mc else "0"
+            has_mcap = 1 if mc else 0
             fr       = funding_rates.get(sym)
             oi       = oi_changes.get(sym)
             ls       = ls_ratios.get(sym)
@@ -198,26 +169,26 @@ def virtual_open():
 
             new_rows.append({
                 "open_time":           ts,
-                "close_time":          "",
+                "close_time":          None,
                 "symbol":              sym,
                 "side":                side_str,
-                "change_pct":          f"{pct:.4f}",
-                "market_cap_usd":      fmt_large(mc) if mc else "",
-                "circulating_supply":  fmt_large(cs) if cs else "",
+                "change_pct":          pct,
+                "market_cap_usd":      fmt_large(mc) if mc else None,
+                "circulating_supply":  fmt_large(cs) if cs else None,
                 "has_mcap":            has_mcap,
-                "btc_change_pct":      f"{btc_pct:.4f}" if btc_pct is not None else "",
-                "symbol_funding_rate": f"{fr:.6f}" if fr is not None else "",
-                "oi_change_pct":       f"{oi:.4f}"  if oi is not None else "",
-                "long_short_ratio":    f"{ls:.4f}"  if ls is not None else "",
-                "entry_price":         f"{entry:.6f}",
-                "close_price":         "",
-                "unrealized_pnl":      "",
-                "roe_pct":             "",
+                "btc_change_pct":      btc_pct,
+                "symbol_funding_rate": fr,
+                "oi_change_pct":       oi,
+                "long_short_ratio":    ls,
+                "entry_price":         entry,
+                "close_price":         None,
+                "unrealized_pnl":      None,
+                "roe_pct":             None,
             })
             time.sleep(0.1)
 
-    existing.extend(new_rows)
-    _write_log(existing)
+    if new_rows:
+        db.insert_virtual_log(new_rows)
     log.info(f"【虚拟开仓完成】共记录 {len(new_rows)} 笔虚拟仓位")
 
 
@@ -239,7 +210,7 @@ def main():
     log.info("虚拟开单沙盘启动")
     log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 虚拟平仓")
     log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 虚拟开仓（涨幅榜空 + 跌幅榜多，不过滤市值）")
-    log.info(f"  日志：{VIRTUAL_LOG_FILE}")
+    log.info(f"  日志：SQLite 数据库")
 
     while True:
         wait_until(CLOSE_HOUR, CLOSE_MINUTE)

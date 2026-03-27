@@ -1,16 +1,15 @@
 """
-一次性脚本：将调仓脚本开的仓位补录到 open_log.csv
+一次性脚本：将调仓脚本开的仓位补录到数据库
 从当前持仓中读取数据，补全开仓记录。
 """
 
-import csv
-import os
 import logging
 from datetime import datetime
 from binance_client import (
     auth_get, get_ticker_24h, get_exchange_info,
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
 )
+import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,16 +17,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
-
-OPEN_LOG_FILE = os.path.join(os.path.dirname(__file__), "open_log.csv")
-LOG_FIELDS = [
-    "open_time", "close_time", "symbol", "side",
-    "change_pct", "market_cap_usd", "circulating_supply",
-    "btc_change_pct", "symbol_funding_rate", "oi_change_pct",
-    "long_short_ratio", "open_commission",
-    "entry_price", "close_price", "position_amt",
-    "unrealized_pnl", "roe_pct", "leverage", "close_commission",
-]
 
 
 def fmt_large(n: float) -> str:
@@ -64,25 +53,16 @@ def main():
         log.warning(f"CoinGecko 获取失败：{e}")
         market_data = {}
 
-    # 获取 BTC 涨跌幅
     try:
         btc_pct = get_btc_change_pct()
     except Exception:
         btc_pct = None
 
-    # 获取资金费率
     try:
         funding_rates = get_all_funding_rates()
     except Exception:
         funding_rates = {}
 
-    # 读取现有记录
-    existing = []
-    if os.path.exists(OPEN_LOG_FILE) and os.path.getsize(OPEN_LOG_FILE) > 0:
-        with open(OPEN_LOG_FILE, "r", newline="", encoding="utf-8") as f:
-            existing = list(csv.DictReader(f))
-
-    # 用 updateTime 作为开仓时间（持仓的最后更新时间，即开仓时间）
     new_rows = []
     for p in active:
         sym = p["symbol"]
@@ -95,40 +75,33 @@ def main():
         mc = md.get("market_cap", 0)
         cs = md.get("circulating_supply", 0)
         fr = funding_rates.get(sym)
-        change_pct = ticker_map.get(sym, "")
+        change_pct = ticker_map.get(sym)
 
-        row = {
+        new_rows.append({
             "open_time":           open_time,
-            "close_time":          "",
+            "close_time":          None,
             "symbol":              sym,
             "side":                side,
-            "change_pct":          f"{change_pct:.4f}" if isinstance(change_pct, float) else "",
-            "market_cap_usd":      fmt_large(mc) if mc else "",
-            "circulating_supply":  fmt_large(cs) if cs else "",
-            "btc_change_pct":      f"{btc_pct:.4f}" if btc_pct is not None else "",
-            "symbol_funding_rate": f"{fr:.6f}" if fr is not None else "",
-            "oi_change_pct":       "",
-            "long_short_ratio":    "",
-            "open_commission":     "",
-            "entry_price":         "",
-            "close_price":         "",
-            "position_amt":        "",
-            "unrealized_pnl":      "",
-            "roe_pct":             "",
-            "leverage":            "",
-            "close_commission":    "",
-        }
-        new_rows.append(row)
+            "change_pct":          change_pct,
+            "market_cap_usd":      fmt_large(mc) if mc else None,
+            "circulating_supply":  fmt_large(cs) if cs else None,
+            "btc_change_pct":      btc_pct,
+            "symbol_funding_rate": fr,
+            "oi_change_pct":       None,
+            "long_short_ratio":    None,
+            "open_commission":     None,
+            "entry_price":         None,
+            "close_price":         None,
+            "position_amt":        None,
+            "unrealized_pnl":      None,
+            "roe_pct":             None,
+            "leverage":            None,
+            "close_commission":    None,
+        })
         log.info(f"  {sym} {side} 涨跌 {change_pct:+.2f}% 开仓时间 {open_time}")
 
-    existing.extend(new_rows)
-
-    with open(OPEN_LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS, extrasaction="ignore", restval="")
-        writer.writeheader()
-        writer.writerows(existing)
-
-    log.info(f"补录完成，共新增 {len(new_rows)} 条记录到 {OPEN_LOG_FILE}")
+    db.insert_open_log(new_rows)
+    log.info(f"补录完成，共新增 {len(new_rows)} 条记录到数据库")
 
 
 if __name__ == "__main__":
