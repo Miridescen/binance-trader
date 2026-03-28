@@ -16,6 +16,7 @@ STOP_LOSS_ROE_PCT    = -80          # ROE 低于此值触发止损（%）
 TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
 TP_LOW_ROE           = 20           # 16:00 后止盈阈值（%），仅空单
 TP_SWITCH_HOUR       = 15           # 止盈阈值切换时间（避开16:00资金费率结算）
+TP_SWITCH_MINUTE     = 30           # 切换分钟
 CHECK_INTERVAL       = 60           # 检查间隔（秒）
 SPECIAL_SNAPSHOTS    = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
@@ -83,10 +84,12 @@ def _update_open_log_on_close(p: dict, reason: str):
 
 
 def _get_tp_threshold() -> float:
-    """根据当前时间返回止盈阈值：16:00前用高阈值，16:00后用低阈值"""
-    hour = datetime.now().hour
-    # 09:00-15:59 用高阈值，16:00-08:59 用低阈值
-    if 9 <= hour < TP_SWITCH_HOUR:
+    """根据当前时间返回止盈阈值：15:30前用高阈值，15:30后用低阈值"""
+    now = datetime.now()
+    # 09:00-15:29 用高阈值，15:30-08:59 用低阈值
+    if 9 <= now.hour < TP_SWITCH_HOUR:
+        return TP_HIGH_ROE
+    if now.hour == TP_SWITCH_HOUR and now.minute < TP_SWITCH_MINUTE:
         return TP_HIGH_ROE
     return TP_LOW_ROE
 
@@ -273,7 +276,7 @@ def collect_and_report():
 
 def main():
     log.info(f"持仓监控启动  止损：ROE ≤ {STOP_LOSS_ROE_PCT}%  "
-             f"止盈(空单)：{TP_SWITCH_HOUR}:00前>={TP_HIGH_ROE}% / 之后>={TP_LOW_ROE}%  间隔：{CHECK_INTERVAL}s")
+             f"止盈(空单)：{TP_SWITCH_HOUR}:{TP_SWITCH_MINUTE:02d}前>={TP_HIGH_ROE}% / 之后>={TP_LOW_ROE}%  间隔：{CHECK_INTERVAL}s")
     log.info(f"持仓日志：SQLite 数据库")
     log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
