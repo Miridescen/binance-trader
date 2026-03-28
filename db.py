@@ -187,6 +187,13 @@ def get_open_log_all() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def delete_open_log(condition: str, params: tuple = ()):
+    """按条件删除开仓记录"""
+    with get_conn() as conn:
+        cursor = conn.execute(f"DELETE FROM open_log WHERE {condition}", params)
+        return cursor.rowcount
+
+
 def get_open_log_unclosed() -> list[dict]:
     """读取所有未平仓记录"""
     with get_conn() as conn:

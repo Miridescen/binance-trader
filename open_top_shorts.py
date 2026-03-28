@@ -567,7 +567,7 @@ def run_open():
         log.warning(f"获取开仓手续费失败：{e}")
         commissions = {}
 
-    print_open_summary(top_gainers, top_losers, market_data, btc_pct,
+    print_open_summary(top_gainers, [], market_data, btc_pct,
                        funding_rates, commissions, oi_changes, long_short_ratios)
     log.info("【开单全部完成】")
 
