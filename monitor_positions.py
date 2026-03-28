@@ -12,10 +12,12 @@ from datetime import datetime
 from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode
 import db
 
-STOP_LOSS_ROE_PCT  = -80           # ROE 低于此值触发止损（%）
-TAKE_PROFIT_ROE_PCT = 40           # ROE 高于此值触发止盈（%），仅空单
-CHECK_INTERVAL     = 60            # 检查间隔（秒）
-SPECIAL_SNAPSHOTS  = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
+STOP_LOSS_ROE_PCT    = -80          # ROE 低于此值触发止损（%）
+TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
+TP_LOW_ROE           = 20           # 16:00 后止盈阈值（%），仅空单
+TP_SWITCH_HOUR       = 16           # 止盈阈值切换时间（24h）
+CHECK_INTERVAL       = 60           # 检查间隔（秒）
+SPECIAL_SNAPSHOTS    = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,8 +82,19 @@ def _update_open_log_on_close(p: dict, reason: str):
     })
 
 
+def _get_tp_threshold() -> float:
+    """根据当前时间返回止盈阈值：16:00前用高阈值，16:00后用低阈值"""
+    hour = datetime.now().hour
+    # 09:00-15:59 用高阈值，16:00-08:59 用低阈值
+    if 9 <= hour < TP_SWITCH_HOUR:
+        return TP_HIGH_ROE
+    return TP_LOW_ROE
+
+
 def check_stop_loss_and_take_profit(positions: list, hedge: bool):
-    """检查所有持仓：ROE <= -80% 止损，空单 ROE >= 40% 止盈"""
+    """检查所有持仓：ROE <= -80% 止损，空单动态止盈（16:00前>=50%，之后>=20%）"""
+    tp_threshold = _get_tp_threshold()
+
     for p in positions:
         amt      = float(p["positionAmt"])
         entry    = float(p["entryPrice"])
@@ -106,12 +119,12 @@ def check_stop_loss_and_take_profit(positions: list, hedge: bool):
                 log.error(f"  {symbol} 止损平仓失败 ❌")
             continue
 
-        # 止盈检查（仅空单）
-        if amt < 0 and roe >= TAKE_PROFIT_ROE_PCT:
-            log.info(f"【止盈触发】{symbol} {side_str}  ROE {roe:+.1f}%  入场 {entry:.4f}  标记 {mark:.4f}")
+        # 动态止盈检查（仅空单）
+        if amt < 0 and roe >= tp_threshold:
+            log.info(f"【止盈触发】{symbol} {side_str}  ROE {roe:+.1f}% >= {tp_threshold}%  入场 {entry:.4f}  标记 {mark:.4f}")
             if close_position(p, hedge):
                 _update_open_log_on_close(p, "止盈")
-                log_event("TAKE_PROFIT", f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}")
+                log_event("TAKE_PROFIT", f"{symbol} {side_str} ROE={roe:.1f}% threshold={tp_threshold}% entry={entry} mark={mark}")
                 log.info(f"  {symbol} 止盈平仓成功 ✅")
             else:
                 log.error(f"  {symbol} 止盈平仓失败 ❌")
@@ -259,7 +272,8 @@ def collect_and_report():
     save_detail_csv(positions, now)
 
 def main():
-    log.info(f"持仓监控启动  止损：ROE ≤ {STOP_LOSS_ROE_PCT}%  止盈(空单)：ROE ≥ {TAKE_PROFIT_ROE_PCT}%  间隔：{CHECK_INTERVAL}s")
+    log.info(f"持仓监控启动  止损：ROE ≤ {STOP_LOSS_ROE_PCT}%  "
+             f"止盈(空单)：{TP_SWITCH_HOUR}:00前>={TP_HIGH_ROE}% / 之后>={TP_LOW_ROE}%  间隔：{CHECK_INTERVAL}s")
     log.info(f"持仓日志：SQLite 数据库")
     log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
