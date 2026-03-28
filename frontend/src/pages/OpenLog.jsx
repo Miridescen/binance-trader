@@ -42,7 +42,6 @@ const columns = [
     dataIndex: 'open_time',
     key: 'open_time',
     width: 100,
-    fixed: 'left',
     render: v => v ? v.slice(5, 16) : '-',
   },
   {
@@ -57,7 +56,6 @@ const columns = [
     dataIndex: 'symbol',
     key: 'symbol',
     width: 110,
-    fixed: 'left',
     filters: [],
     onFilter: (value, record) => record.symbol === value,
   },
@@ -246,7 +244,7 @@ export default function OpenLog() {
               showTotal: total => `共 ${total} 条`,
               onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
             }}
-            scroll={{ x: 1500 }}
+            scroll={{ x: 'max-content' }}
             size="small"
             rowClassName={record => {
               if (!record.close_time) return 'row-open'

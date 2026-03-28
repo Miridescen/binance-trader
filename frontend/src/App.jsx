@@ -7,6 +7,7 @@ import VirtualLog from './pages/VirtualLog'
 import VirtualDetail from './pages/VirtualDetail'
 import PositionsDetail from './pages/PositionsDetail'
 import 'antd/dist/reset.css'
+import './App.css'
 
 const { Header, Content } = Layout
 

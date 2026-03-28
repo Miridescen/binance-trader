@@ -1,0 +1,30 @@
+html, body, #root {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  /* 移动端减少内边距 */
+  .ant-layout-content {
+    padding: 8px !important;
+  }
+  .ant-layout-header {
+    padding: 0 8px !important;
+    gap: 8px !important;
+  }
+  /* 表格容器不溢出 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* 卡片紧凑 */
+  .ant-card-body {
+    padding: 8px !important;
+  }
+  .ant-statistic-title {
+    font-size: 12px !important;
+  }
+  .ant-statistic-content {
+    font-size: 16px !important;
+  }
+}

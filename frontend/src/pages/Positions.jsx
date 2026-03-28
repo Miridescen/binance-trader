@@ -17,7 +17,7 @@ function PnlCell({ value }) {
 }
 
 const columns = [
-  { title: '时间', dataIndex: 'time', key: 'time', width: 100, fixed: 'left', render: v => v ? v.slice(5, 16) : '-' },
+  { title: '时间', dataIndex: 'time', key: 'time', width: 100, render: v => v ? v.slice(5, 16) : '-' },
   {
     title: '账户余额', dataIndex: 'balance_usdt', key: 'balance_usdt', width: 110,
     render: v => <span style={{ fontWeight: 500 }}>{parseFloat(v).toFixed(2)}</span>,
@@ -140,7 +140,7 @@ export default function Positions() {
               showTotal: total => `共 ${total} 条`,
               onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
             }}
-            scroll={{ x: 900 }} size="small"
+            scroll={{ x: 'max-content' }} size="small"
             rowClassName={record => {
               const pnl = parseFloat(record.total_pnl)
               if (pnl > 0) return 'row-profit'

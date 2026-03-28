@@ -36,7 +36,6 @@ const columns = [
     dataIndex: 'time',
     key: 'time',
     width: 100,
-    fixed: 'left',
     render: v => v ? v.slice(5, 16) : '-',
   },
   {
@@ -44,7 +43,6 @@ const columns = [
     dataIndex: 'symbol',
     key: 'symbol',
     width: 110,
-    fixed: 'left',
     filters: [],
     onFilter: (value, record) => record.symbol === value,
   },
@@ -177,7 +175,7 @@ export default function PositionsDetail() {
             showTotal: total => `共 ${total} 条`,
             onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
           }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 'max-content' }}
           size="small"
           rowClassName={record => {
             const pnl = parseFloat(record.unrealized_pnl)
