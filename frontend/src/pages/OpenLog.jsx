@@ -133,6 +133,17 @@ const columns = [
     render: v => v ? `${v}x` : '-',
   },
   {
+    title: '手续费',
+    dataIndex: 'close_commission',
+    key: 'close_commission',
+    width: 90,
+    render: v => {
+      const n = parseFloat(v)
+      if (isNaN(n)) return '-'
+      return <span style={{ color: '#cf1322' }}>{n.toFixed(4)}</span>
+    },
+  },
+  {
     title: '平仓原因',
     dataIndex: 'close_reason',
     key: 'close_reason',
@@ -175,34 +186,23 @@ export default function OpenLog() {
   const totalPnl  = sum(closed)
   const longPnl   = sum(longClosed)
   const shortPnl  = sum(shortClosed)
+  const totalComm = closed.reduce((acc, r) => acc + Math.abs(parseFloat(r.close_commission || 0)) + Math.abs(parseFloat(r.open_commission || 0)), 0)
 
   return (
     <div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={3}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col span={4}>
           <Card size="small">
             <Statistic title="总盈亏" value={Math.abs(totalPnl).toFixed(2)} suffix="U"
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={3}>
-          <Card size="small">
-            <Statistic title="多单盈亏" value={Math.abs(longPnl).toFixed(2)} suffix="U"
-              prefix={longPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: longPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col span={3}>
+        <Col span={4}>
           <Card size="small">
             <Statistic title="空单盈亏" value={Math.abs(shortPnl).toFixed(2)} suffix="U"
               prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: shortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col span={3}>
-          <Card size="small">
-            <Statistic title="多单胜率" value={winRate(longClosed)} suffix="%" />
           </Card>
         </Col>
         <Col span={3}>
@@ -217,12 +217,18 @@ export default function OpenLog() {
         </Col>
         <Col span={3}>
           <Card size="small">
-            <Statistic title="止盈次数" value={tpCount} valueStyle={{ color: '#3f8600' }} />
+            <Statistic title="止盈" value={tpCount} valueStyle={{ color: '#3f8600' }} />
           </Card>
         </Col>
         <Col span={3}>
           <Card size="small">
-            <Statistic title="止损次数" value={slCount} valueStyle={{ color: '#cf1322' }} />
+            <Statistic title="止损" value={slCount} valueStyle={{ color: '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic title="总手续费" value={totalComm.toFixed(2)} suffix="U"
+              valueStyle={{ color: '#cf1322' }} />
           </Card>
         </Col>
       </Row>
@@ -239,7 +245,7 @@ export default function OpenLog() {
               showTotal: total => `共 ${total} 条`,
               onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
             }}
-            scroll={{ x: 1400 }}
+            scroll={{ x: 1500 }}
             size="small"
             rowClassName={record => {
               if (!record.close_time) return 'row-open'
