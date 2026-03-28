@@ -1,19 +1,21 @@
 import { Layout, Menu } from 'antd'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
-import { FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined } from '@ant-design/icons'
+import { FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined, LineChartOutlined } from '@ant-design/icons'
 import Positions from './pages/Positions'
 import OpenLog from './pages/OpenLog'
 import VirtualLog from './pages/VirtualLog'
+import VirtualDetail from './pages/VirtualDetail'
 import PositionsDetail from './pages/PositionsDetail'
 import 'antd/dist/reset.css'
 
 const { Header, Content } = Layout
 
 const menuItems = [
-  { key: '/',                icon: <FundOutlined />,          label: '持仓监控' },
-  { key: '/openlog',         icon: <UnorderedListOutlined />,  label: '开仓记录' },
-  { key: '/virtuallog',      icon: <ExperimentOutlined />,     label: '虚拟盘' },
-  { key: '/positions-detail', icon: <BarChartOutlined />,      label: '持仓明细' },
+  { key: '/',                  icon: <FundOutlined />,           label: '持仓监控' },
+  { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
+  { key: '/positions-detail',  icon: <BarChartOutlined />,       label: '持仓明细' },
+  { key: '/virtuallog',        icon: <ExperimentOutlined />,     label: '模拟盘' },
+  { key: '/virtual-detail',    icon: <LineChartOutlined />,      label: '模拟盘明细' },
 ]
 
 export default function App() {
@@ -39,7 +41,8 @@ export default function App() {
         <Routes>
           <Route path="/"        element={<Positions />} />
           <Route path="/openlog"    element={<OpenLog />} />
-          <Route path="/virtuallog"       element={<VirtualLog />} />
+          <Route path="/virtuallog"        element={<VirtualLog />} />
+          <Route path="/virtual-detail"   element={<VirtualDetail />} />
           <Route path="/positions-detail" element={<PositionsDetail />} />
         </Routes>
       </Content>
