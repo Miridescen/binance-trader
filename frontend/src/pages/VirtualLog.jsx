@@ -60,13 +60,14 @@ const columns = [
     key: 'side',
     width: 70,
     render: v => {
-      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange' }
+      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange', '模拟空': 'cyan' }
       return <Tag color={colors[v] || 'default'}>{v}</Tag>
     },
     filters: [
       { text: '多', value: '多' },
       { text: '空', value: '空' },
       { text: '模拟多', value: '模拟多' },
+      { text: '模拟空', value: '模拟空' },
     ],
     onFilter: (value, record) => record.side === value,
   },
@@ -155,14 +156,16 @@ export default function VirtualLog() {
   const closed = data.filter(r => r.close_time)
   const longClosed  = closed.filter(r => r.side === '多')
   const shortClosed = closed.filter(r => r.side === '空')
-  const simLongClosed = closed.filter(r => r.side === '模拟多')
+  const simLongClosed  = closed.filter(r => r.side === '模拟多')
+  const simShortClosed = closed.filter(r => r.side === '模拟空')
   const sum = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
   const winRate = arr => arr.length ? (arr.filter(r => parseFloat(r.unrealized_pnl) > 0).length / arr.length * 100).toFixed(0) : 0
 
-  const totalPnl   = sum(closed)
-  const longPnl    = sum(longClosed)
-  const shortPnl   = sum(shortClosed)
-  const simLongPnl = sum(simLongClosed)
+  const totalPnl    = sum(closed)
+  const longPnl     = sum(longClosed)
+  const shortPnl    = sum(shortClosed)
+  const simLongPnl  = sum(simLongClosed)
+  const simShortPnl = sum(simShortClosed)
 
   return (
     <div>
@@ -196,6 +199,13 @@ export default function VirtualLog() {
         <Col span={4}>
           <Card size="small">
             <Statistic title="空单胜率" value={winRate(shortClosed)} suffix="%" />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
+            <Statistic title="模拟空盈亏" value={Math.abs(simShortPnl).toFixed(2)} suffix="U"
+              prefix={simShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: simShortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
         <Col span={4}>

@@ -41,10 +41,12 @@ MIN_VOLUME     = 10_000_000
 CLOSE_HOUR, CLOSE_MINUTE = 8, 50
 OPEN_HOUR,  OPEN_MINUTE  = 9, 0
 
-# ── 多单模拟参数（与实盘一致） ─────────────────────────────
+# ── 模拟参数（与实盘一致） ──────────────────────────────────
 LONG_TOP_N         = 10
 LONG_MIN_CHANGE    = 8.0      # 跌幅 >= 8%
-LONG_CANDIDATE_BUF = 6
+SHORT_TOP_N        = 10
+SHORT_MIN_CHANGE   = 5.0      # 涨幅 >= 5%
+CANDIDATE_BUF      = 6
 
 
 # ── 虚拟平仓 ───────────────────────────────────────────
@@ -102,11 +104,12 @@ def virtual_open():
     top_gainers = tickers[:TOP_N]
     top_losers  = tickers[-TOP_N:][::-1]
 
-    # ── 多单模拟组：与实盘相同参数（市值过滤 + 跌幅门槛） ──
-    long_candidate_pool = tickers[-(LONG_TOP_N * LONG_CANDIDATE_BUF):][::-1]
+    # ── 模拟组候选池（与实盘相同参数） ──
+    short_candidate_pool = tickers[:SHORT_TOP_N * CANDIDATE_BUF]
+    long_candidate_pool  = tickers[-(LONG_TOP_N * CANDIDATE_BUF):][::-1]
 
     all_syms = list(set(
-        [t["symbol"] for t in top_gainers + top_losers + long_candidate_pool]
+        [t["symbol"] for t in top_gainers + top_losers + short_candidate_pool + long_candidate_pool]
     ))
 
     # 拉市值
@@ -119,15 +122,21 @@ def virtual_open():
     def has_mcap(t):
         return bool(market_data.get(t["symbol"], {}).get("market_cap"))
 
-    # 筛选多单模拟组
+    # 筛选模拟组
     if market_data:
-        sim_longs = [t for t in long_candidate_pool
-                     if has_mcap(t) and float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
-                     ][:LONG_TOP_N]
+        sim_shorts = [t for t in short_candidate_pool
+                      if has_mcap(t) and float(t["priceChangePercent"]) >= SHORT_MIN_CHANGE
+                      ][:SHORT_TOP_N]
+        sim_longs  = [t for t in long_candidate_pool
+                      if has_mcap(t) and float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
+                      ][:LONG_TOP_N]
     else:
-        sim_longs = [t for t in long_candidate_pool
-                     if float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
-                     ][:LONG_TOP_N]
+        sim_shorts = [t for t in short_candidate_pool
+                      if float(t["priceChangePercent"]) >= SHORT_MIN_CHANGE
+                      ][:SHORT_TOP_N]
+        sim_longs  = [t for t in long_candidate_pool
+                      if float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
+                      ][:LONG_TOP_N]
 
     try:
         btc_pct = get_btc_change_pct()
@@ -252,6 +261,47 @@ def virtual_open():
         })
         time.sleep(0.1)
 
+    # ── 写入空单模拟组（与实盘相同参数） ──
+    log.info(f"── 空单模拟（实盘参数：涨幅>={SHORT_MIN_CHANGE}%，市值过滤，TOP{SHORT_TOP_N}）：{len(sim_shorts)} 个 ──")
+    for t in sim_shorts:
+        sym = t["symbol"]
+        pct = float(t["priceChangePercent"])
+
+        try:
+            entry = get_mark_price(sym)
+        except Exception as e:
+            log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
+            continue
+
+        md  = market_data.get(sym, {})
+        mc  = md.get("market_cap", 0)
+        cs  = md.get("circulating_supply", 0)
+        fr  = funding_rates.get(sym)
+        oi  = oi_changes.get(sym)
+        ls  = ls_ratios.get(sym)
+
+        log.info(f"  {sym} 模拟空  涨跌 {pct:+.2f}%  入场价 {entry:.4f}")
+
+        new_rows.append({
+            "open_time":           ts,
+            "close_time":          None,
+            "symbol":              sym,
+            "side":                "模拟空",
+            "change_pct":          pct,
+            "market_cap_usd":      fmt_large(mc) if mc else None,
+            "circulating_supply":  fmt_large(cs) if cs else None,
+            "has_mcap":            1,
+            "btc_change_pct":      btc_pct,
+            "symbol_funding_rate": fr,
+            "oi_change_pct":       oi,
+            "long_short_ratio":    ls,
+            "entry_price":         entry,
+            "close_price":         None,
+            "unrealized_pnl":      None,
+            "roe_pct":             None,
+        })
+        time.sleep(0.1)
+
     if new_rows:
         db.insert_virtual_log(new_rows)
     log.info(f"【虚拟开仓完成】共记录 {len(new_rows)} 笔虚拟仓位")
@@ -276,7 +326,8 @@ def main():
     log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 虚拟平仓")
     log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 虚拟开仓")
     log.info(f"  对照组：涨跌幅榜各 TOP{TOP_N}（不过滤市值）")
-    log.info(f"  多单模拟：跌幅>={LONG_MIN_CHANGE}% + 市值过滤，TOP{LONG_TOP_N}")
+    log.info(f"  模拟空：涨幅>={SHORT_MIN_CHANGE}% + 市值过滤，TOP{SHORT_TOP_N}")
+    log.info(f"  模拟多：跌幅>={LONG_MIN_CHANGE}% + 市值过滤，TOP{LONG_TOP_N}")
     log.info(f"  日志：SQLite 数据库")
 
     while True:
