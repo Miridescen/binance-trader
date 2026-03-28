@@ -12,7 +12,7 @@ import './App.css'
 
 const { Header, Content } = Layout
 
-const ACCESS_PASSWORD = 'ztt2026'
+const ACCESS_PASSWORD = 'mu824810056'
 
 const menuItems = [
   { key: '/',                  icon: <FundOutlined />,           label: '持仓监控' },
