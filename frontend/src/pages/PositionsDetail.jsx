@@ -54,8 +54,8 @@ const columns = [
     width: 70,
     render: v => <Tag color={v === 'SHORT' || v === '空' ? 'green' : 'red'}>{v}</Tag>,
     filters: [
-      { text: 'LONG', value: 'LONG' },
-      { text: 'SHORT', value: 'SHORT' },
+      { text: '多', value: '多' },
+      { text: '空', value: '空' },
     ],
     onFilter: (value, record) => record.side === value,
   },
@@ -101,7 +101,7 @@ const columns = [
 export default function PositionsDetail() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
   const [filterDate, setFilterDate] = useState(null)   // dayjs 对象
   const [filterTime, setFilterTime] = useState(null)   // 具体时间字符串，如 "11:34:50"
 
@@ -172,7 +172,7 @@ export default function PositionsDetail() {
           pagination={{
             ...pagination,
             showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
+            pageSizeOptions: [20, 50, 100, 200],
             showTotal: total => `共 ${total} 条`,
             onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
           }}

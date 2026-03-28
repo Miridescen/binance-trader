@@ -30,6 +30,12 @@ function RoeCell({ value }) {
   )
 }
 
+const reasonColor = {
+  '止盈': 'green',
+  '止损': 'red',
+  '定时平仓': 'blue',
+}
+
 const columns = [
   {
     title: '开仓时间',
@@ -126,19 +132,31 @@ const columns = [
     width: 70,
     render: v => v ? `${v}x` : '-',
   },
+  {
+    title: '平仓原因',
+    dataIndex: 'close_reason',
+    key: 'close_reason',
+    width: 100,
+    render: v => v ? <Tag color={reasonColor[v] || 'default'}>{v}</Tag> : '-',
+    filters: [
+      { text: '止盈', value: '止盈' },
+      { text: '止损', value: '止损' },
+      { text: '定时平仓', value: '定时平仓' },
+    ],
+    onFilter: (value, record) => record.close_reason === value,
+  },
 ]
 
 export default function OpenLog() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
 
   useEffect(() => {
     axios.get('/api/open_log').then(res => {
       const rows = res.data
         .map((r, i) => ({ ...r, key: i }))
         .reverse()
-      // 动态生成币种筛选项
       const symbols = [...new Set(rows.map(r => r.symbol))]
       columns.find(c => c.key === 'symbol').filters = symbols.map(s => ({ text: s, value: s }))
       setData(rows)
@@ -149,6 +167,8 @@ export default function OpenLog() {
   const closed = data.filter(r => r.close_time)
   const longClosed  = closed.filter(r => r.side === '多')
   const shortClosed = closed.filter(r => r.side === '空')
+  const tpCount = closed.filter(r => r.close_reason === '止盈').length
+  const slCount = closed.filter(r => r.close_reason === '止损').length
   const sum = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
   const winRate = arr => arr.length ? (arr.filter(r => parseFloat(r.unrealized_pnl) > 0).length / arr.length * 100).toFixed(0) : 0
 
@@ -159,40 +179,50 @@ export default function OpenLog() {
   return (
     <div>
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={4}>
+        <Col span={3}>
           <Card size="small">
             <Statistic title="总盈亏" value={Math.abs(totalPnl).toFixed(2)} suffix="U"
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Card size="small">
             <Statistic title="多单盈亏" value={Math.abs(longPnl).toFixed(2)} suffix="U"
               prefix={longPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: longPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Card size="small">
             <Statistic title="空单盈亏" value={Math.abs(shortPnl).toFixed(2)} suffix="U"
               prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: shortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Card size="small">
             <Statistic title="多单胜率" value={winRate(longClosed)} suffix="%" />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Card size="small">
             <Statistic title="空单胜率" value={winRate(shortClosed)} suffix="%" />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Card size="small">
-            <Statistic title="总交易笔数" value={closed.length} suffix="笔" />
+            <Statistic title="总笔数" value={closed.length} suffix="笔" />
+          </Card>
+        </Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic title="止盈次数" value={tpCount} valueStyle={{ color: '#3f8600' }} />
+          </Card>
+        </Col>
+        <Col span={3}>
+          <Card size="small">
+            <Statistic title="止损次数" value={slCount} valueStyle={{ color: '#cf1322' }} />
           </Card>
         </Col>
       </Row>
@@ -205,11 +235,11 @@ export default function OpenLog() {
             pagination={{
               ...pagination,
               showSizeChanger: true,
-              pageSizeOptions: [10, 20, 50, 100],
+              pageSizeOptions: [20, 50, 100, 200],
               showTotal: total => `共 ${total} 条`,
               onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
             }}
-            scroll={{ x: 1200 }}
+            scroll={{ x: 1400 }}
             size="small"
             rowClassName={record => {
               if (!record.close_time) return 'row-open'

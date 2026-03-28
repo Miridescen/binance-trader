@@ -59,10 +59,14 @@ const columns = [
     dataIndex: 'side',
     key: 'side',
     width: 70,
-    render: v => <Tag color={v === '空' ? 'green' : 'red'}>{v}</Tag>,
+    render: v => {
+      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange' }
+      return <Tag color={colors[v] || 'default'}>{v}</Tag>
+    },
     filters: [
       { text: '多', value: '多' },
       { text: '空', value: '空' },
+      { text: '模拟多', value: '模拟多' },
     ],
     onFilter: (value, record) => record.side === value,
   },
@@ -136,7 +140,7 @@ const columns = [
 export default function VirtualLog() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 })
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
 
   useEffect(() => {
     axios.get('/api/virtual_log').then(res => {
@@ -151,12 +155,14 @@ export default function VirtualLog() {
   const closed = data.filter(r => r.close_time)
   const longClosed  = closed.filter(r => r.side === '多')
   const shortClosed = closed.filter(r => r.side === '空')
+  const simLongClosed = closed.filter(r => r.side === '模拟多')
   const sum = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
   const winRate = arr => arr.length ? (arr.filter(r => parseFloat(r.unrealized_pnl) > 0).length / arr.length * 100).toFixed(0) : 0
 
-  const totalPnl  = sum(closed)
-  const longPnl   = sum(longClosed)
-  const shortPnl  = sum(shortClosed)
+  const totalPnl   = sum(closed)
+  const longPnl    = sum(longClosed)
+  const shortPnl   = sum(shortClosed)
+  const simLongPnl = sum(simLongClosed)
 
   return (
     <div>
@@ -194,6 +200,13 @@ export default function VirtualLog() {
         </Col>
         <Col span={4}>
           <Card size="small">
+            <Statistic title="模拟多盈亏" value={Math.abs(simLongPnl).toFixed(2)} suffix="U"
+              prefix={simLongPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: simLongPnl >= 0 ? '#3f8600' : '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card size="small">
             <Statistic title="总交易笔数" value={closed.length} suffix="笔" />
           </Card>
         </Col>
@@ -207,7 +220,7 @@ export default function VirtualLog() {
             pagination={{
               ...pagination,
               showSizeChanger: true,
-              pageSizeOptions: [10, 20, 50, 100],
+              pageSizeOptions: [20, 50, 100, 200],
               showTotal: total => `共 ${total} 条`,
               onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
             }}

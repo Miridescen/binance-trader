@@ -54,7 +54,7 @@ export default function Positions() {
   const [loading, setLoading] = useState(true)
   const [rt, setRt] = useState(null)           // 实时数据
   const [rtUpdated, setRtUpdated] = useState(null)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 24 })
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
 
   // 历史表格数据（每分钟刷新）
   const fetchData = async () => {
@@ -136,7 +136,7 @@ export default function Positions() {
             pagination={{
               ...pagination,
               showSizeChanger: true,
-              pageSizeOptions: [10, 24, 50, 100],
+              pageSizeOptions: [20, 50, 100, 200],
               showTotal: total => `共 ${total} 条`,
               onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
             }}
