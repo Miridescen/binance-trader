@@ -1,11 +1,9 @@
 """
 虚拟开单（沙盘模式）：
+  模式一（原有）：涨跌幅榜各 TOP10，不过滤市值 → 对照组
+  模式二（新增）：与实盘相同参数的多单模拟（市值过滤 + 跌幅>=8%）
   - 不下真实订单，用标记价模拟成交
-  - 不过滤无市值币，记录 has_mcap 标记，与真实策略对比
   - 时间节点与真实策略一致（08:50 虚拟平仓，09:00 虚拟开仓）
-  - 独立写入 virtual_open_log.csv
-
-用途：验证「过滤无市值币」优化效果的对照组
 """
 
 import os
@@ -42,6 +40,11 @@ TOP_N          = 10
 MIN_VOLUME     = 10_000_000
 CLOSE_HOUR, CLOSE_MINUTE = 8, 50
 OPEN_HOUR,  OPEN_MINUTE  = 9, 0
+
+# ── 多单模拟参数（与实盘一致） ─────────────────────────────
+LONG_TOP_N         = 10
+LONG_MIN_CHANGE    = 8.0      # 跌幅 >= 8%
+LONG_CANDIDATE_BUF = 6
 
 
 # ── 虚拟平仓 ───────────────────────────────────────────
@@ -95,16 +98,36 @@ def virtual_open():
     tickers = get_ticker_24h(valid_symbols, MIN_VOLUME)
     tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
 
+    # ── 原有对照组：涨跌幅各 TOP10，不过滤 ──
     top_gainers = tickers[:TOP_N]
     top_losers  = tickers[-TOP_N:][::-1]
-    all_syms    = [t["symbol"] for t in top_gainers + top_losers]
 
-    # 拉市值（仅用于记录 has_mcap，不过滤）
+    # ── 多单模拟组：与实盘相同参数（市值过滤 + 跌幅门槛） ──
+    long_candidate_pool = tickers[-(LONG_TOP_N * LONG_CANDIDATE_BUF):][::-1]
+
+    all_syms = list(set(
+        [t["symbol"] for t in top_gainers + top_losers + long_candidate_pool]
+    ))
+
+    # 拉市值
     try:
         market_data = get_coin_market_data(all_syms)
     except Exception as e:
         log.warning(f"CoinGecko 获取失败，has_mcap 全部标记为 False：{e}")
         market_data = {}
+
+    def has_mcap(t):
+        return bool(market_data.get(t["symbol"], {}).get("market_cap"))
+
+    # 筛选多单模拟组
+    if market_data:
+        sim_longs = [t for t in long_candidate_pool
+                     if has_mcap(t) and float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
+                     ][:LONG_TOP_N]
+    else:
+        sim_longs = [t for t in long_candidate_pool
+                     if float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
+                     ][:LONG_TOP_N]
 
     try:
         btc_pct = get_btc_change_pct()
@@ -137,11 +160,12 @@ def virtual_open():
     ts  = now.strftime("%Y-%m-%d %H:%M:%S")
     new_rows = []
 
+    # ── 写入原有对照组（涨跌幅榜各 TOP10，不过滤市值） ──
     for label, tickers_group, side_str in [
         ("空单（涨幅榜）", top_gainers, "空"),
         ("多单（跌幅榜）", top_losers,  "多"),
     ]:
-        log.info(f"── {label} ──")
+        log.info(f"── 对照组：{label} ──")
         for t in tickers_group:
             sym = t["symbol"]
             pct = float(t["priceChangePercent"])
@@ -155,7 +179,7 @@ def virtual_open():
             md       = market_data.get(sym, {})
             mc       = md.get("market_cap", 0)
             cs       = md.get("circulating_supply", 0)
-            has_mcap = 1 if mc else 0
+            has_mcap_flag = 1 if mc else 0
             fr       = funding_rates.get(sym)
             oi       = oi_changes.get(sym)
             ls       = ls_ratios.get(sym)
@@ -175,7 +199,7 @@ def virtual_open():
                 "change_pct":          pct,
                 "market_cap_usd":      fmt_large(mc) if mc else None,
                 "circulating_supply":  fmt_large(cs) if cs else None,
-                "has_mcap":            has_mcap,
+                "has_mcap":            has_mcap_flag,
                 "btc_change_pct":      btc_pct,
                 "symbol_funding_rate": fr,
                 "oi_change_pct":       oi,
@@ -186,6 +210,47 @@ def virtual_open():
                 "roe_pct":             None,
             })
             time.sleep(0.1)
+
+    # ── 写入多单模拟组（与实盘相同参数） ──
+    log.info(f"── 多单模拟（实盘参数：跌幅>={LONG_MIN_CHANGE}%，市值过滤，TOP{LONG_TOP_N}）：{len(sim_longs)} 个 ──")
+    for t in sim_longs:
+        sym = t["symbol"]
+        pct = float(t["priceChangePercent"])
+
+        try:
+            entry = get_mark_price(sym)
+        except Exception as e:
+            log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
+            continue
+
+        md  = market_data.get(sym, {})
+        mc  = md.get("market_cap", 0)
+        cs  = md.get("circulating_supply", 0)
+        fr  = funding_rates.get(sym)
+        oi  = oi_changes.get(sym)
+        ls  = ls_ratios.get(sym)
+
+        log.info(f"  {sym} 模拟多  涨跌 {pct:+.2f}%  入场价 {entry:.4f}")
+
+        new_rows.append({
+            "open_time":           ts,
+            "close_time":          None,
+            "symbol":              sym,
+            "side":                "模拟多",
+            "change_pct":          pct,
+            "market_cap_usd":      fmt_large(mc) if mc else None,
+            "circulating_supply":  fmt_large(cs) if cs else None,
+            "has_mcap":            1,
+            "btc_change_pct":      btc_pct,
+            "symbol_funding_rate": fr,
+            "oi_change_pct":       oi,
+            "long_short_ratio":    ls,
+            "entry_price":         entry,
+            "close_price":         None,
+            "unrealized_pnl":      None,
+            "roe_pct":             None,
+        })
+        time.sleep(0.1)
 
     if new_rows:
         db.insert_virtual_log(new_rows)
@@ -209,7 +274,9 @@ def wait_until(hour: int, minute: int):
 def main():
     log.info("虚拟开单沙盘启动")
     log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 虚拟平仓")
-    log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 虚拟开仓（涨幅榜空 + 跌幅榜多，不过滤市值）")
+    log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 虚拟开仓")
+    log.info(f"  对照组：涨跌幅榜各 TOP{TOP_N}（不过滤市值）")
+    log.info(f"  多单模拟：跌幅>={LONG_MIN_CHANGE}% + 市值过滤，TOP{LONG_TOP_N}")
     log.info(f"  日志：SQLite 数据库")
 
     while True:

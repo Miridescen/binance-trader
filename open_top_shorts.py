@@ -526,7 +526,7 @@ def run_open():
 
     open_start_ms = int(time.time() * 1000)
     run_batch_orders("空单（涨幅榜）", top_gainers, "SELL", symbol_info, hedge)
-    run_batch_orders("多单（跌幅榜）", top_losers,  "BUY",  symbol_info, hedge)
+    log.info(f"多单已转为模拟盘观察，不实盘开仓（{len(top_losers)} 个标的）")
     open_end_ms = int(time.time() * 1000)
 
     # 开单完成后采集辅助指标
