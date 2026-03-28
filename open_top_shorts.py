@@ -125,6 +125,7 @@ def save_close_log(positions: list, now: datetime):
             "unrealized_pnl": pnl,
             "roe_pct":        roe,
             "leverage":       leverage,
+            "close_reason":   "定时平仓",
         }
 
         db.update_close_data(sym, "", close_data)

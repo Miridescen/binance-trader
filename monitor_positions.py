@@ -12,9 +12,10 @@ from datetime import datetime
 from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode
 import db
 
-STOP_LOSS_ROE_PCT = -80           # ROE 低于此值触发止损（%），对应3x杠杆下价格反向移动约27%
-CHECK_INTERVAL    = 60            # 止损检查间隔（秒）
-SPECIAL_SNAPSHOTS = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
+STOP_LOSS_ROE_PCT  = -80           # ROE 低于此值触发止损（%）
+TAKE_PROFIT_ROE_PCT = 40           # ROE 高于此值触发止盈（%），仅空单
+CHECK_INTERVAL     = 60            # 检查间隔（秒）
+SPECIAL_SNAPSHOTS  = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,8 +57,31 @@ def close_position(p: dict, hedge: bool) -> bool:
     result = auth_post("/fapi/v1/order", params)
     return "orderId" in result
 
-def check_stop_loss(positions: list, hedge: bool):
-    """检查所有持仓，ROE 低于阈值则立即止损平仓"""
+def _update_open_log_on_close(p: dict, reason: str):
+    """止盈/止损平仓后，回填 open_log 中的收益数据和平仓原因"""
+    amt      = float(p["positionAmt"])
+    entry    = float(p["entryPrice"])
+    mark     = float(p["markPrice"])
+    pnl      = float(p["unRealizedProfit"])
+    leverage = int(p["leverage"])
+    margin   = entry * abs(amt) / leverage if leverage and entry else 0
+    roe      = pnl / margin * 100 if margin else 0
+    ts       = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    db.update_close_data(p["symbol"], "", {
+        "close_time":     ts,
+        "entry_price":    entry,
+        "close_price":    mark,
+        "position_amt":   abs(amt),
+        "unrealized_pnl": pnl,
+        "roe_pct":        roe,
+        "leverage":       leverage,
+        "close_reason":   reason,
+    })
+
+
+def check_stop_loss_and_take_profit(positions: list, hedge: bool):
+    """检查所有持仓：ROE <= -80% 止损，空单 ROE >= 40% 止盈"""
     for p in positions:
         amt      = float(p["positionAmt"])
         entry    = float(p["entryPrice"])
@@ -68,16 +92,29 @@ def check_stop_loss(positions: list, hedge: bool):
         if margin == 0:
             continue
         roe = pnl / margin * 100
+        symbol   = p["symbol"]
+        side_str = "空" if amt < 0 else "多"
+
+        # 止损检查（多单和空单都检查）
         if roe <= STOP_LOSS_ROE_PCT:
-            symbol   = p["symbol"]
-            side_str = "空" if amt < 0 else "多"
-            log.warning(f"【止损触发】{symbol} {side_str}  ROE {roe:+.1f}%  标记价 {mark:.4f}")
+            log.warning(f"【止损触发】{symbol} {side_str}  ROE {roe:+.1f}%  入场 {entry:.4f}  标记 {mark:.4f}")
             if close_position(p, hedge):
-                detail = f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}"
-                log_event("STOP_LOSS", detail)
+                _update_open_log_on_close(p, "止损")
+                log_event("STOP_LOSS", f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}")
                 log.warning(f"  {symbol} 止损平仓成功 ✅")
             else:
                 log.error(f"  {symbol} 止损平仓失败 ❌")
+            continue
+
+        # 止盈检查（仅空单）
+        if amt < 0 and roe >= TAKE_PROFIT_ROE_PCT:
+            log.info(f"【止盈触发】{symbol} {side_str}  ROE {roe:+.1f}%  入场 {entry:.4f}  标记 {mark:.4f}")
+            if close_position(p, hedge):
+                _update_open_log_on_close(p, "止盈")
+                log_event("TAKE_PROFIT", f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}")
+                log.info(f"  {symbol} 止盈平仓成功 ✅")
+            else:
+                log.error(f"  {symbol} 止盈平仓失败 ❌")
 
 
 # ── 统计 ───────────────────────────────────────────────
@@ -222,7 +259,7 @@ def collect_and_report():
     save_detail_csv(positions, now)
 
 def main():
-    log.info(f"持仓监控启动  止损线：ROE ≤ {STOP_LOSS_ROE_PCT}%  检查间隔：{CHECK_INTERVAL}s")
+    log.info(f"持仓监控启动  止损：ROE ≤ {STOP_LOSS_ROE_PCT}%  止盈(空单)：ROE ≥ {TAKE_PROFIT_ROE_PCT}%  间隔：{CHECK_INTERVAL}s")
     log.info(f"持仓日志：SQLite 数据库")
     log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
@@ -243,7 +280,7 @@ def main():
 
         try:
             positions = get_positions()
-            check_stop_loss(positions, hedge)
+            check_stop_loss_and_take_profit(positions, hedge)
         except Exception as e:
             log.error(f"止损检查失败：{e}")
 

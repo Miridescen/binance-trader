@@ -51,7 +51,8 @@ def init_db():
             unrealized_pnl     REAL,
             roe_pct            REAL,
             leverage           INTEGER,
-            close_commission   REAL
+            close_commission   REAL,
+            close_reason       TEXT
         );
 
         -- 批次汇总（原 batch_summary_log.csv）
@@ -120,6 +121,16 @@ def init_db():
             roe_pct             REAL
         );
 
+        -- 兼容升级：为已有表添加新字段（不存在时才加）
+        """)
+
+        # ALTER TABLE 不支持 IF NOT EXISTS，用 try 兼容
+        try:
+            conn.execute("ALTER TABLE open_log ADD COLUMN close_reason TEXT")
+        except Exception:
+            pass  # 字段已存在
+
+        conn.executescript("""
         -- 索引：加速常用查询
         CREATE INDEX IF NOT EXISTS idx_open_log_symbol ON open_log(symbol);
         CREATE INDEX IF NOT EXISTS idx_open_log_open_time ON open_log(open_time);
@@ -161,13 +172,14 @@ def update_close_data(symbol: str, open_time: str, close_data: dict):
                 position_amt = :position_amt,
                 unrealized_pnl = :unrealized_pnl,
                 roe_pct = :roe_pct,
-                leverage = :leverage
+                leverage = :leverage,
+                close_reason = :close_reason
             WHERE id = (
                 SELECT id FROM open_log
                 WHERE symbol = :symbol AND (close_time IS NULL OR close_time = '')
                 ORDER BY open_time DESC LIMIT 1
             )
-        """, {**close_data, "symbol": symbol})
+        """, {"close_reason": None, **close_data, "symbol": symbol})
 
 
 def patch_close_commissions(commissions: dict, today: str):
