@@ -15,7 +15,7 @@ import db
 STOP_LOSS_ROE_PCT    = -80          # ROE 低于此值触发止损（%）
 TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
 TP_LOW_ROE           = 20           # 16:00 后止盈阈值（%），仅空单
-TP_SWITCH_HOUR       = 16           # 止盈阈值切换时间（24h）
+TP_SWITCH_HOUR       = 15           # 止盈阈值切换时间（避开16:00资金费率结算）
 CHECK_INTERVAL       = 60           # 检查间隔（秒）
 SPECIAL_SNAPSHOTS    = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
