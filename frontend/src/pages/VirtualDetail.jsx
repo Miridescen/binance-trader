@@ -37,14 +37,15 @@ const columns = [
     title: '时间',
     dataIndex: 'time',
     key: 'time',
-    width: 160,
+    width: 100,
     fixed: 'left',
+    render: v => v ? v.slice(5, 16) : '-',
   },
   {
     title: '币种',
     dataIndex: 'symbol',
     key: 'symbol',
-    width: 140,
+    width: 110,
     fixed: 'left',
     filters: [],
     onFilter: (value, record) => record.symbol === value,
@@ -193,6 +194,9 @@ export default function VirtualDetail() {
       <style>{`
         .row-profit td { background: #f6ffed !important; }
         .row-loss   td { background: #fff1f0 !important; }
+        @media (max-width: 768px) {
+          .ant-table-cell { white-space: normal !important; word-break: break-all; }
+        }
       `}</style>
     </Card>
   )

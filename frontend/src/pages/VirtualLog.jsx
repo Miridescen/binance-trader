@@ -35,21 +35,22 @@ const columns = [
     title: '开仓时间',
     dataIndex: 'open_time',
     key: 'open_time',
-    width: 160,
+    width: 100,
     fixed: 'left',
+    render: v => v ? v.slice(5, 16) : '-',
   },
   {
     title: '平仓时间',
     dataIndex: 'close_time',
     key: 'close_time',
-    width: 160,
-    render: v => v || <span style={{ color: '#bbb' }}>持仓中</span>,
+    width: 100,
+    render: v => v ? v.slice(5, 16) : <span style={{ color: '#bbb' }}>持仓中</span>,
   },
   {
     title: '币种',
     dataIndex: 'symbol',
     key: 'symbol',
-    width: 140,
+    width: 110,
     fixed: 'left',
     filters: [],
     onFilter: (value, record) => record.symbol === value,
@@ -169,53 +170,53 @@ export default function VirtualLog() {
 
   return (
     <div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={4}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="总盈亏(虚拟)" value={Math.abs(totalPnl).toFixed(2)} suffix="U"
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="多单盈亏" value={Math.abs(longPnl).toFixed(2)} suffix="U"
               prefix={longPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: longPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="空单盈亏" value={Math.abs(shortPnl).toFixed(2)} suffix="U"
               prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: shortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="多单胜率" value={winRate(longClosed)} suffix="%" />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="空单胜率" value={winRate(shortClosed)} suffix="%" />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="模拟空盈亏" value={Math.abs(simShortPnl).toFixed(2)} suffix="U"
               prefix={simShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: simShortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="模拟多盈亏" value={Math.abs(simLongPnl).toFixed(2)} suffix="U"
               prefix={simLongPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: simLongPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="总交易笔数" value={closed.length} suffix="笔" />
           </Card>
@@ -251,6 +252,9 @@ export default function VirtualLog() {
         .row-profit td { background: #f6ffed !important; }
         .row-loss   td { background: #fff1f0 !important; }
         .row-open   td { background: #e6f4ff !important; }
+        @media (max-width: 768px) {
+          .ant-table-cell { white-space: normal !important; word-break: break-all; }
+        }
       `}</style>
     </div>
   )

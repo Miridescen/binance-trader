@@ -17,7 +17,7 @@ function PnlCell({ value }) {
 }
 
 const columns = [
-  { title: '时间', dataIndex: 'time', key: 'time', width: 160, fixed: 'left' },
+  { title: '时间', dataIndex: 'time', key: 'time', width: 100, fixed: 'left', render: v => v ? v.slice(5, 16) : '-' },
   {
     title: '账户余额', dataIndex: 'balance_usdt', key: 'balance_usdt', width: 110,
     render: v => <span style={{ fontWeight: 500 }}>{parseFloat(v).toFixed(2)}</span>,
@@ -97,15 +97,15 @@ export default function Positions() {
         <ReloadOutlined style={{ cursor: 'pointer', marginRight: 6 }} onClick={fetchRealtime} />
         实时数据更新：{rtUpdated || '-'}
       </div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={12} md={6} lg={6}>
           <Card size="small">
             <Statistic title="账户余额（实时）" value={balance.toFixed(2)} suffix="USDT"
               valueStyle={{ color: '#1677ff' }}
               formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6} lg={6}>
           <Card size="small">
             <Statistic title="总浮盈亏（实时）" value={Math.abs(totalPnl).toFixed(2)}
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} suffix="USDT"
@@ -113,7 +113,7 @@ export default function Positions() {
               formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6} lg={6}>
           <Card size="small">
             <Statistic title="多单浮盈亏（实时）" value={Math.abs(longPnl).toFixed(2)}
               prefix={longPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} suffix="USDT"
@@ -121,7 +121,7 @@ export default function Positions() {
               formatter={v => rt ? v : <span style={{ color: '#bbb' }}>-</span>} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6} lg={6}>
           <Card size="small">
             <Statistic title="空单浮盈亏（实时）" value={Math.abs(shortPnl).toFixed(2)}
               prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} suffix="USDT"
@@ -153,6 +153,9 @@ export default function Positions() {
       <style>{`
         .row-profit td { background: #f6ffed !important; }
         .row-loss   td { background: #fff1f0 !important; }
+        @media (max-width: 768px) {
+          .ant-table-cell { white-space: normal !important; word-break: break-all; }
+        }
       `}</style>
     </div>
   )
