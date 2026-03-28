@@ -2,6 +2,8 @@
 获取币安 U本位永续合约 24h 涨幅榜 / 跌幅榜 前10
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from binance_client import get_exchange_info, get_ticker_24h
 
 MIN_VOLUME = 10_000_000

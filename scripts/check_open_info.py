@@ -3,6 +3,8 @@
 输出终端表格 + 写入数据库
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import os
 from datetime import datetime
 from binance_client import auth_get, get_ticker_24h, get_exchange_info, get_coin_market_data

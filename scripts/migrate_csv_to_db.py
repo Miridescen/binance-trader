@@ -3,6 +3,8 @@
 运行后 CSV 文件保留不删除，作为备份。
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import csv
 import os
 import logging

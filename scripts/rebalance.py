@@ -4,6 +4,8 @@
   2. 重新开仓：空单 TOP10（保证金 20 USDT），多单不变（保证金 10 USDT）
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 import logging
 from open_top_shorts import (

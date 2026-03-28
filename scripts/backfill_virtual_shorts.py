@@ -3,6 +3,8 @@
 实盘空单参数（涨幅>=5% + 市值过滤 + TOP10）与模拟空完全一致，
 所以可以直接复制。
 """
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import db
 
 def main():

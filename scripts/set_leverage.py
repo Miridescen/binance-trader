@@ -2,6 +2,8 @@
 批量将币安合约账户所有交易对的杠杆倍率设置为指定倍数
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 from binance_client import auth_post, get_exchange_info
 

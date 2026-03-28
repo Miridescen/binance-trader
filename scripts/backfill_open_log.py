@@ -3,6 +3,8 @@
 从当前持仓中读取数据，补全开仓记录。
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from datetime import datetime
 from binance_client import (
