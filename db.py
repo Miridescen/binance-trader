@@ -173,13 +173,14 @@ def update_close_data(symbol: str, open_time: str, close_data: dict):
                 unrealized_pnl = :unrealized_pnl,
                 roe_pct = :roe_pct,
                 leverage = :leverage,
-                close_reason = :close_reason
+                close_reason = :close_reason,
+                close_commission = COALESCE(:close_commission, close_commission)
             WHERE id = (
                 SELECT id FROM open_log
                 WHERE symbol = :symbol AND (close_time IS NULL OR close_time = '')
                 ORDER BY open_time DESC LIMIT 1
             )
-        """, {"close_reason": None, **close_data, "symbol": symbol})
+        """, {"close_reason": None, "close_commission": None, **close_data, "symbol": symbol})
 
 
 def patch_close_commissions(commissions: dict, today: str):

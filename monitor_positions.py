@@ -9,7 +9,7 @@ import os
 import time
 import logging
 from datetime import datetime
-from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode
+from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode, get_commissions_by_symbol
 import db
 
 STOP_LOSS_ROE_PCT    = -80          # ROE 低于此值触发止损（%）
@@ -60,8 +60,8 @@ def close_position(p: dict, hedge: bool) -> bool:
     result = auth_post("/fapi/v1/order", params)
     return "orderId" in result
 
-def _update_open_log_on_close(p: dict, reason: str):
-    """止盈/止损平仓后，回填 open_log 中的收益数据和平仓原因"""
+def _update_open_log_on_close(p: dict, reason: str, close_ms: int):
+    """止盈/止损平仓后，回填 open_log 中的收益数据、平仓原因和手续费"""
     amt      = float(p["positionAmt"])
     entry    = float(p["entryPrice"])
     mark     = float(p["markPrice"])
@@ -70,16 +70,26 @@ def _update_open_log_on_close(p: dict, reason: str):
     margin   = entry * abs(amt) / leverage if leverage and entry else 0
     roe      = pnl / margin * 100 if margin else 0
     ts       = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    symbol   = p["symbol"]
 
-    db.update_close_data(p["symbol"], "", {
-        "close_time":     ts,
-        "entry_price":    entry,
-        "close_price":    mark,
-        "position_amt":   abs(amt),
-        "unrealized_pnl": pnl,
-        "roe_pct":        roe,
-        "leverage":       leverage,
-        "close_reason":   reason,
+    # 查询本次平仓的手续费
+    commission = None
+    try:
+        comms = get_commissions_by_symbol(close_ms - 5000, close_ms + 5000)
+        commission = comms.get(symbol)
+    except Exception as e:
+        log.warning(f"  {symbol} 获取平仓手续费失败：{e}")
+
+    db.update_close_data(symbol, "", {
+        "close_time":       ts,
+        "entry_price":      entry,
+        "close_price":      mark,
+        "position_amt":     abs(amt),
+        "unrealized_pnl":   pnl,
+        "roe_pct":          roe,
+        "leverage":         leverage,
+        "close_reason":     reason,
+        "close_commission": commission,
     })
 
 
@@ -114,8 +124,9 @@ def check_stop_loss_and_take_profit(positions: list, hedge: bool):
         # 止损检查（多单和空单都检查）
         if roe <= STOP_LOSS_ROE_PCT:
             log.warning(f"【止损触发】{symbol} {side_str}  ROE {roe:+.1f}%  入场 {entry:.4f}  标记 {mark:.4f}")
+            close_ms = int(time.time() * 1000)
             if close_position(p, hedge):
-                _update_open_log_on_close(p, "止损")
+                _update_open_log_on_close(p, "止损", close_ms)
                 log_event("STOP_LOSS", f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}")
                 log.warning(f"  {symbol} 止损平仓成功 ✅")
             else:
@@ -125,8 +136,9 @@ def check_stop_loss_and_take_profit(positions: list, hedge: bool):
         # 动态止盈检查（仅空单）
         if amt < 0 and roe >= tp_threshold:
             log.info(f"【止盈触发】{symbol} {side_str}  ROE {roe:+.1f}% >= {tp_threshold}%  入场 {entry:.4f}  标记 {mark:.4f}")
+            close_ms = int(time.time() * 1000)
             if close_position(p, hedge):
-                _update_open_log_on_close(p, "止盈")
+                _update_open_log_on_close(p, "止盈", close_ms)
                 log_event("TAKE_PROFIT", f"{symbol} {side_str} ROE={roe:.1f}% threshold={tp_threshold}% entry={entry} mark={mark}")
                 log.info(f"  {symbol} 止盈平仓成功 ✅")
             else:
