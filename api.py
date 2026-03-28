@@ -34,6 +34,10 @@ def virtual_log():
 def positions_detail():
     return jsonify(_strip_id(db.get_positions_detail_all()))
 
+@app.route("/api/virtual_detail")
+def virtual_detail():
+    return jsonify(_strip_id(db.get_virtual_detail_all()))
+
 @app.route("/api/realtime")
 def realtime():
     try:

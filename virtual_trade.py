@@ -307,16 +307,61 @@ def virtual_open():
     log.info(f"【虚拟开仓完成】共记录 {len(new_rows)} 笔虚拟仓位")
 
 
+# ── 虚拟持仓快照 ──────────────────────────────────────
+
+MONITOR_INTERVAL = 20   # 快照间隔（分钟）
+
+def virtual_snapshot():
+    """对所有未平仓虚拟仓位拍快照，记录当前 PnL/ROE"""
+    unclosed = db.get_virtual_log_unclosed()
+    if not unclosed:
+        return
+
+    now = datetime.now()
+    ts  = now.strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+
+    for row in unclosed:
+        sym   = row["symbol"]
+        side  = row["side"]
+        entry = row["entry_price"]
+        if entry is None:
+            continue
+
+        try:
+            mark = get_mark_price(sym)
+        except Exception:
+            continue
+
+        notional = MARGIN_PER_POS * LEVERAGE
+        if side in ("空", "模拟空"):
+            pnl = (entry - mark) / entry * notional
+        else:
+            pnl = (mark - entry) / entry * notional
+        roe = pnl / MARGIN_PER_POS * 100
+
+        rows.append({
+            "time":            ts,
+            "symbol":          sym,
+            "side":            side,
+            "entry_price":     entry,
+            "mark_price":      mark,
+            "unrealized_pnl":  pnl,
+            "roe_pct":         roe,
+        })
+        time.sleep(0.05)
+
+    if rows:
+        db.insert_virtual_detail(rows)
+        log.info(f"虚拟持仓快照：{len(rows)} 个仓位")
+
+
 # ── 定时工具 ───────────────────────────────────────────
 
-def wait_until(hour: int, minute: int):
-    now      = datetime.now()
-    next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if next_run <= now:
-        next_run += timedelta(days=1)
-    wait_sec = (next_run - now).total_seconds()
-    log.info(f"等待中 → 下次执行：{next_run.strftime('%Y-%m-%d %H:%M:%S')}（约 {wait_sec/3600:.1f} 小时后）")
-    time.sleep(wait_sec)
+CHECK_INTERVAL = 60  # 主循环检查间隔（秒）
+
+def _time_match(now, hour, minute):
+    return now.hour == hour and now.minute == minute
 
 
 # ── 主循环 ─────────────────────────────────────────────
@@ -325,23 +370,57 @@ def main():
     log.info("虚拟开单沙盘启动")
     log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 虚拟平仓")
     log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 虚拟开仓")
+    log.info(f"  持仓快照：每 {MONITOR_INTERVAL} 分钟")
     log.info(f"  对照组：涨跌幅榜各 TOP{TOP_N}（不过滤市值）")
     log.info(f"  模拟空：涨幅>={SHORT_MIN_CHANGE}% + 市值过滤，TOP{SHORT_TOP_N}")
     log.info(f"  模拟多：跌幅>={LONG_MIN_CHANGE}% + 市值过滤，TOP{LONG_TOP_N}")
     log.info(f"  日志：SQLite 数据库")
 
-    while True:
-        wait_until(CLOSE_HOUR, CLOSE_MINUTE)
-        try:
-            virtual_close()
-        except Exception as e:
-            log.error(f"虚拟平仓出错：{e}", exc_info=True)
+    did_close = False
+    did_open  = False
+    last_snapshot_slot = -1
 
-        wait_until(OPEN_HOUR, OPEN_MINUTE)
-        try:
-            virtual_open()
-        except Exception as e:
-            log.error(f"虚拟开仓出错：{e}", exc_info=True)
+    # 启动时立即快照一次
+    try:
+        virtual_snapshot()
+        now = datetime.now()
+        last_snapshot_slot = now.hour * 60 + now.minute // MONITOR_INTERVAL * MONITOR_INTERVAL
+    except Exception as e:
+        log.error(f"首次快照失败：{e}")
+
+    while True:
+        time.sleep(CHECK_INTERVAL)
+        now = datetime.now()
+
+        # 每天 0 点重置开平仓标记
+        if now.hour == 0 and now.minute < 1:
+            did_close = False
+            did_open  = False
+
+        # 虚拟平仓
+        if _time_match(now, CLOSE_HOUR, CLOSE_MINUTE) and not did_close:
+            try:
+                virtual_close()
+                did_close = True
+            except Exception as e:
+                log.error(f"虚拟平仓出错：{e}", exc_info=True)
+
+        # 虚拟开仓
+        if _time_match(now, OPEN_HOUR, OPEN_MINUTE) and not did_open:
+            try:
+                virtual_open()
+                did_open = True
+            except Exception as e:
+                log.error(f"虚拟开仓出错：{e}", exc_info=True)
+
+        # 每 20 分钟快照
+        current_slot = now.hour * 60 + now.minute // MONITOR_INTERVAL * MONITOR_INTERVAL
+        if current_slot != last_snapshot_slot:
+            try:
+                virtual_snapshot()
+                last_snapshot_slot = current_slot
+            except Exception as e:
+                log.error(f"虚拟快照失败：{e}")
 
 
 if __name__ == "__main__":

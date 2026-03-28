@@ -121,6 +121,20 @@ def init_db():
             roe_pct             REAL
         );
 
+        -- 虚拟持仓快照明细
+        CREATE TABLE IF NOT EXISTS virtual_detail (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            time            TEXT,
+            symbol          TEXT,
+            side            TEXT,
+            entry_price     REAL,
+            mark_price      REAL,
+            unrealized_pnl  REAL,
+            roe_pct         REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_time ON virtual_detail(time);
+
         -- 兼容升级：为已有表添加新字段（不存在时才加）
         """)
 
@@ -314,6 +328,24 @@ def get_virtual_log_unclosed() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM virtual_log WHERE close_time IS NULL OR close_time = '' ORDER BY id"
         ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── virtual_detail 操作 ───────────────────────────────────
+
+def insert_virtual_detail(rows: list[dict]):
+    with get_conn() as conn:
+        conn.executemany("""
+            INSERT INTO virtual_detail (time, symbol, side, entry_price,
+                mark_price, unrealized_pnl, roe_pct)
+            VALUES (:time, :symbol, :side, :entry_price,
+                :mark_price, :unrealized_pnl, :roe_pct)
+        """, rows)
+
+
+def get_virtual_detail_all() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM virtual_detail ORDER BY id").fetchall()
         return [dict(r) for r in rows]
 
 
