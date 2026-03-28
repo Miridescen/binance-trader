@@ -18,6 +18,7 @@ from binance_client import (
     get_commissions_by_symbol, get_oi_changes, get_long_short_ratios,
 )
 import db
+import notify
 
 logging.basicConfig(
     level=logging.INFO,
@@ -253,6 +254,14 @@ def run_limit_close():
         print_close_summary(active)
         save_close_summary_csv(active, datetime.now())
         save_close_log(active, datetime.now())
+        # 日报推送
+        try:
+            balance = next(
+                (float(a["marginBalance"]) for a in auth_get("/fapi/v2/account").get("assets", []) if a["asset"] == "USDT"), 0
+            )
+            notify.send_daily_report(active, balance)
+        except Exception as e:
+            log.warning(f"日报推送失败：{e}")
 
     log.info("撤销所有挂单...")
     cancel_all_open_orders()

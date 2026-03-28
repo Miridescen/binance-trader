@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode, get_commissions_by_symbol
 import db
+import notify
 
 STOP_LOSS_ROE_PCT    = -80          # ROE 低于此值触发止损（%）
 TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
@@ -129,6 +130,10 @@ def check_stop_loss_and_take_profit(positions: list, hedge: bool):
                 _update_open_log_on_close(p, "止损", close_ms)
                 log_event("STOP_LOSS", f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}")
                 log.warning(f"  {symbol} 止损平仓成功 ✅")
+                try:
+                    notify.send_tp_sl_alert(symbol, side_str, "止损", roe, pnl, entry, mark)
+                except Exception:
+                    pass
             else:
                 log.error(f"  {symbol} 止损平仓失败 ❌")
             continue
@@ -141,6 +146,10 @@ def check_stop_loss_and_take_profit(positions: list, hedge: bool):
                 _update_open_log_on_close(p, "止盈", close_ms)
                 log_event("TAKE_PROFIT", f"{symbol} {side_str} ROE={roe:.1f}% threshold={tp_threshold}% entry={entry} mark={mark}")
                 log.info(f"  {symbol} 止盈平仓成功 ✅")
+                try:
+                    notify.send_tp_sl_alert(symbol, side_str, "止盈", roe, pnl, entry, mark)
+                except Exception:
+                    pass
             else:
                 log.error(f"  {symbol} 止盈平仓失败 ❌")
 
