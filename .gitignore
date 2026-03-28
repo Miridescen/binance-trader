@@ -19,6 +19,8 @@ logs/
 *.log
 *.jsonl
 trader.db
+trader.db-shm
+trader.db-wal
 
 # IDE
 .idea/
