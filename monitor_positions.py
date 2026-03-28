@@ -293,13 +293,15 @@ def main():
     log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
     hedge              = is_hedge_mode()
-    last_report_hour   = -1
-    reported_specials  = set()   # 记录当天已触发的特殊快照 (hour, minute)
+    last_report_slot   = -1       # 上次采集的时间槽（每20分钟一个槽）
+    reported_specials  = set()    # 记录当天已触发的特殊快照 (hour, minute)
+    REPORT_INTERVAL    = 20       # 采集间隔（分钟）
 
     # 启动时立即统计一次
     try:
         collect_and_report()
-        last_report_hour = datetime.now().hour
+        now = datetime.now()
+        last_report_slot = now.hour * 60 + now.minute // REPORT_INTERVAL * REPORT_INTERVAL
     except Exception as e:
         log.error(f"首次统计失败：{e}")
 
@@ -327,11 +329,12 @@ def main():
             except Exception as e:
                 log.error(f"特殊快照失败：{e}")
 
-        # 每小时整点输出报告
-        if now.hour != last_report_hour:
+        # 每 20 分钟采集一次（:00, :20, :40）
+        current_slot = now.hour * 60 + now.minute // REPORT_INTERVAL * REPORT_INTERVAL
+        if current_slot != last_report_slot:
             try:
                 collect_and_report()
-                last_report_hour = now.hour
+                last_report_slot = current_slot
             except Exception as e:
                 log.error(f"统计失败：{e}")
 
