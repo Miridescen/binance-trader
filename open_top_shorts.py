@@ -27,8 +27,8 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 LEVERAGE             = 3
-MARGIN_PER_POS       = 20
-TOP_N_SHORT          = 20       # 空单最多开仓数
+MARGIN_PER_POS       = 30
+TOP_N_SHORT          = 10       # 空单最多开仓数
 TOP_N_LONG           = 10       # 多单最多开仓数
 TOP_N                = max(TOP_N_SHORT, TOP_N_LONG)  # 兼容旧引用
 MIN_CHANGE_SHORT     = 5.0      # 空单入场最低涨幅（%）
