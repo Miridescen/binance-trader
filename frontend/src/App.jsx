@@ -28,7 +28,7 @@ function LoginPage({ onLogin }) {
 
   const handleLogin = () => {
     if (pwd === ACCESS_PASSWORD) {
-      sessionStorage.setItem('auth', '1')
+      localStorage.setItem('auth', '1')
       onLogin()
     } else {
       setError(true)
@@ -63,12 +63,12 @@ export default function App() {
     // URL 参数 ?pwd=xxx 自动登录
     const urlPwd = searchParams.get('pwd')
     if (urlPwd === ACCESS_PASSWORD) {
-      sessionStorage.setItem('auth', '1')
+      localStorage.setItem('auth', '1')
       setAuthed(true)
       return
     }
-    // sessionStorage 已登录
-    if (sessionStorage.getItem('auth') === '1') {
+    // localStorage 已登录
+    if (localStorage.getItem('auth') === '1') {
       setAuthed(true)
     }
   }, [searchParams])
