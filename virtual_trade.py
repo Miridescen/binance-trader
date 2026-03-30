@@ -72,7 +72,7 @@ def virtual_close():
             continue
 
         notional = MARGIN_PER_POS * LEVERAGE
-        if side == "空":
+        if side in ("空", "模拟空"):
             pnl = (entry - mark) / entry * notional
         else:
             pnl = (mark - entry) / entry * notional
@@ -85,7 +85,8 @@ def virtual_close():
             "roe_pct":        roe,
         })
         closed += 1
-        log.info(f"  {sym} {'空→买' if side=='空' else '多→卖'}  入场 {entry:.4f}  出场 {mark:.4f}  PnL {pnl:+.4f}  ROE {roe:+.1f}%")
+        direction = "空→买" if side in ("空", "模拟空") else "多→卖"
+        log.info(f"  {sym}({side}) {direction}  入场 {entry:.4f}  出场 {mark:.4f}  PnL {pnl:+.4f}  ROE {roe:+.1f}%")
         time.sleep(0.1)
 
     log.info(f"【虚拟平仓完成】共平仓 {closed} 笔")
