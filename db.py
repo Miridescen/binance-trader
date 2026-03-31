@@ -288,6 +288,23 @@ def get_positions_detail_all() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_positions_detail_by_date(date: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM positions_detail WHERE time LIKE ? ORDER BY id",
+            (f"{date}%",)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_positions_detail_dates() -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT SUBSTR(time, 1, 10) as date FROM positions_detail ORDER BY date DESC"
+        ).fetchall()
+        return [r["date"] for r in rows]
+
+
 # ── virtual_log 操作 ─────────────────────────────────────
 
 def insert_virtual_log(rows: list[dict]):
@@ -347,6 +364,23 @@ def get_virtual_detail_all() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM virtual_detail ORDER BY id").fetchall()
         return [dict(r) for r in rows]
+
+
+def get_virtual_detail_by_date(date: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM virtual_detail WHERE time LIKE ? ORDER BY id",
+            (f"{date}%",)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_virtual_detail_dates() -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT SUBSTR(time, 1, 10) as date FROM virtual_detail ORDER BY date DESC"
+        ).fetchall()
+        return [r["date"] for r in rows]
 
 
 # 启动时自动建表

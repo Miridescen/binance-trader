@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Table, Card, Tag, Spin, DatePicker, Select, Space } from 'antd'
-import dayjs from 'dayjs'
+import { Table, Card, Tag, Spin, Select, Space } from 'antd'
 import axios from 'axios'
 
 function pnlColor(val) {
@@ -51,7 +50,7 @@ const columns = [
     dataIndex: 'side',
     key: 'side',
     width: 70,
-    render: v => <Tag color={v === 'SHORT' || v === '空' ? 'green' : 'red'}>{v}</Tag>,
+    render: v => <Tag color={v === '空' ? 'green' : 'red'}>{v}</Tag>,
     filters: [
       { text: '多', value: '多' },
       { text: '空', value: '空' },
@@ -99,69 +98,64 @@ const columns = [
 
 export default function PositionsDetail() {
   const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [dates, setDates] = useState([])
+  const [filterDate, setFilterDate] = useState(null)
+  const [filterTime, setFilterTime] = useState(null)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
-  const [filterDate, setFilterDate] = useState(null)   // dayjs 对象
-  const [filterTime, setFilterTime] = useState(null)   // 具体时间字符串，如 "11:34:50"
 
+  // 加载日期列表
   useEffect(() => {
-    axios.get('/api/positions_detail').then(res => {
-      const rows = res.data
-        .map((r, i) => ({ ...r, key: i }))
-        .reverse()
-      columns.find(c => c.key === 'symbol').filters = [...new Set(rows.map(r => r.symbol))].map(s => ({ text: s, value: s }))
-      setData(rows)
-    }).finally(() => setLoading(false))
+    axios.get('/api/positions_detail/dates').then(res => {
+      setDates(res.data || [])
+      if (res.data && res.data.length > 0) {
+        setFilterDate(res.data[0]) // 默认选最新日期
+      }
+    })
   }, [])
 
-  // 选中日期对应的所有时间快照点
-  const timeOptions = useMemo(() => {
-    if (!filterDate) return []
-    const dateStr = filterDate.format('YYYY-MM-DD')
-    const times = [...new Set(
-      data.filter(r => r.time.startsWith(dateStr)).map(r => r.time.slice(11))
-    )].sort()
-    return times.map(t => ({ label: t, value: t }))
-  }, [filterDate, data])
-
-  // 筛选后的数据
-  const filtered = useMemo(() => {
-    if (!filterDate) return data
-    const dateStr = filterDate.format('YYYY-MM-DD')
-    return data.filter(r => {
-      if (!r.time.startsWith(dateStr)) return false
-      if (filterTime && r.time.slice(11) !== filterTime) return false
-      return true
-    })
-  }, [data, filterDate, filterTime])
-
-  const handleDateChange = (val) => {
-    setFilterDate(val)
+  // 选日期后加载该天数据
+  useEffect(() => {
+    if (!filterDate) return
+    setLoading(true)
     setFilterTime(null)
-    setPagination(p => ({ ...p, current: 1 }))
-  }
+    axios.get(`/api/positions_detail?date=${filterDate}`).then(res => {
+      const rows = res.data.map((r, i) => ({ ...r, key: i })).reverse()
+      columns.find(c => c.key === 'symbol').filters = [...new Set(rows.map(r => r.symbol))].map(s => ({ text: s, value: s }))
+      setData(rows)
+      setPagination(p => ({ ...p, current: 1 }))
+    }).finally(() => setLoading(false))
+  }, [filterDate])
 
-  const handleTimeChange = (val) => {
-    setFilterTime(val)
-    setPagination(p => ({ ...p, current: 1 }))
-  }
+  const timeOptions = useMemo(() => {
+    if (!data.length) return []
+    const times = [...new Set(data.map(r => r.time.slice(11)))].sort()
+    return times.map(t => ({ label: t, value: t }))
+  }, [data])
+
+  const filtered = useMemo(() => {
+    if (!filterTime) return data
+    return data.filter(r => r.time.slice(11) === filterTime)
+  }, [data, filterTime])
 
   return (
     <Card size="small">
       <Space style={{ marginBottom: 12 }}>
-        <DatePicker
+        <Select
           placeholder="选择日期"
-          onChange={handleDateChange}
-          allowClear
+          options={dates.map(d => ({ label: d, value: d }))}
+          value={filterDate}
+          onChange={val => setFilterDate(val)}
+          style={{ width: 140 }}
         />
         <Select
           placeholder="选择时间快照"
           options={timeOptions}
           value={filterTime}
-          onChange={handleTimeChange}
+          onChange={val => { setFilterTime(val); setPagination(p => ({ ...p, current: 1 })) }}
           allowClear
           disabled={!filterDate}
-          style={{ width: 160 }}
+          style={{ width: 130 }}
         />
       </Space>
       <Spin spinning={loading}>

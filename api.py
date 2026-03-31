@@ -2,7 +2,8 @@
 Flask API，为前端提供数据（从 SQLite 数据库读取）
 """
 import os
-from flask import Flask, jsonify
+from datetime import datetime
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from binance_client import auth_get
 import db
@@ -32,11 +33,25 @@ def virtual_log():
 
 @app.route("/api/positions_detail")
 def positions_detail():
+    date = request.args.get("date")
+    if date:
+        return jsonify(_strip_id(db.get_positions_detail_by_date(date)))
     return jsonify(_strip_id(db.get_positions_detail_all()))
+
+@app.route("/api/positions_detail/dates")
+def positions_detail_dates():
+    return jsonify(db.get_positions_detail_dates())
 
 @app.route("/api/virtual_detail")
 def virtual_detail():
+    date = request.args.get("date")
+    if date:
+        return jsonify(_strip_id(db.get_virtual_detail_by_date(date)))
     return jsonify(_strip_id(db.get_virtual_detail_all()))
+
+@app.route("/api/virtual_detail/dates")
+def virtual_detail_dates():
+    return jsonify(db.get_virtual_detail_dates())
 
 @app.route("/api/realtime")
 def realtime():
