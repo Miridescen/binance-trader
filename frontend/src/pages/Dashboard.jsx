@@ -34,7 +34,8 @@ const realColumns = [
 
 const virtColumns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110 },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 70, render: v => <Tag color={sideColors[v] || 'default'}>{v}</Tag> },
+  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
+  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 80, render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },
   { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80, render: v => <RoeCell value={v} />, sorter: (a, b) => (a.roe_pct || 0) - (b.roe_pct || 0) },
 ]
