@@ -69,13 +69,87 @@ def realtime():
         long_count  = sum(1 for p in positions if float(p["positionAmt"]) > 0)
         short_count = sum(1 for p in positions if float(p["positionAmt"]) < 0)
 
+        # 保证金占用
+        margin_used = sum(
+            float(p["initialMargin"]) for p in positions
+        ) if positions else 0
+
+        # 持仓明细
+        details = []
+        for p in sorted(positions, key=lambda x: float(x["unRealizedProfit"]), reverse=True):
+            amt = float(p["positionAmt"])
+            entry = float(p["entryPrice"])
+            mark = float(p["markPrice"])
+            pnl = float(p["unRealizedProfit"])
+            lev = int(p["leverage"])
+            margin = entry * abs(amt) / lev if lev and entry else 0
+            roe = pnl / margin * 100 if margin else 0
+            details.append({
+                "symbol": p["symbol"],
+                "side": "空" if amt < 0 else "多",
+                "entry_price": round(entry, 6),
+                "mark_price": round(mark, 6),
+                "position_amt": round(abs(amt), 4),
+                "unrealized_pnl": round(pnl, 4),
+                "roe_pct": round(roe, 2),
+                "leverage": lev,
+            })
+
         return jsonify({
-            "balance":     round(balance, 2),
-            "total_pnl":   round(total_pnl, 2),
-            "long_pnl":    round(long_pnl, 2),
-            "short_pnl":   round(short_pnl, 2),
-            "long_count":  long_count,
-            "short_count": short_count,
+            "balance":      round(balance, 2),
+            "margin_used":  round(margin_used, 2),
+            "total_pnl":    round(total_pnl, 2),
+            "long_pnl":     round(long_pnl, 2),
+            "short_pnl":    round(short_pnl, 2),
+            "long_count":   long_count,
+            "short_count":  short_count,
+            "positions":    details,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/dashboard")
+def dashboard():
+    """看板数据：最新一条持仓监控 + 最新快照的实盘和模拟盘明细"""
+    try:
+        # 最新持仓监控
+        latest_monitor = db.get_positions_log_all()
+        last_monitor = latest_monitor[-1] if latest_monitor else None
+        if last_monitor:
+            last_monitor.pop("id", None)
+
+        # 最新实盘持仓明细（取最新时间点）
+        with db.get_conn() as conn:
+            row = conn.execute("SELECT MAX(time) as t FROM positions_detail").fetchone()
+            latest_time = row["t"] if row else None
+            real_detail = []
+            if latest_time:
+                rows = conn.execute(
+                    "SELECT * FROM positions_detail WHERE time = ? ORDER BY unrealized_pnl DESC", (latest_time,)
+                ).fetchall()
+                real_detail = [dict(r) for r in rows]
+                for r in real_detail:
+                    r.pop("id", None)
+
+            # 最新模拟盘明细
+            row2 = conn.execute("SELECT MAX(time) as t FROM virtual_detail").fetchone()
+            virt_time = row2["t"] if row2 else None
+            virt_detail = []
+            if virt_time:
+                rows2 = conn.execute(
+                    "SELECT * FROM virtual_detail WHERE time = ? ORDER BY side, unrealized_pnl DESC", (virt_time,)
+                ).fetchall()
+                virt_detail = [dict(r) for r in rows2]
+                for r in virt_detail:
+                    r.pop("id", None)
+
+        return jsonify({
+            "monitor": last_monitor,
+            "real_detail": real_detail,
+            "real_detail_time": latest_time,
+            "virtual_detail": virt_detail,
+            "virtual_detail_time": virt_time,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

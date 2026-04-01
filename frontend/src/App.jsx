@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Layout, Menu, Input, Button, Card } from 'antd'
 import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
-import { FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined, LineChartOutlined, LockOutlined } from '@ant-design/icons'
+import { DashboardOutlined, FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined, LineChartOutlined, LockOutlined } from '@ant-design/icons'
+import Dashboard from './pages/Dashboard'
 import Positions from './pages/Positions'
 import OpenLog from './pages/OpenLog'
 import VirtualLog from './pages/VirtualLog'
@@ -15,7 +16,8 @@ const { Header, Content } = Layout
 const ACCESS_PASSWORD = 'mu824810056'
 
 const menuItems = [
-  { key: '/',                  icon: <FundOutlined />,           label: '持仓监控' },
+  { key: '/',                  icon: <DashboardOutlined />,      label: '看板' },
+  { key: '/positions',         icon: <FundOutlined />,           label: '持仓监控' },
   { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
   { key: '/positions-detail',  icon: <BarChartOutlined />,       label: '持仓明细' },
   { key: '/virtuallog',        icon: <ExperimentOutlined />,     label: '模拟盘' },
@@ -94,7 +96,8 @@ export default function App() {
       </Header>
       <Content style={{ padding: 24 }}>
         <Routes>
-          <Route path="/"        element={<Positions />} />
+          <Route path="/"           element={<Dashboard />} />
+          <Route path="/positions"   element={<Positions />} />
           <Route path="/openlog"    element={<OpenLog />} />
           <Route path="/virtuallog"        element={<VirtualLog />} />
           <Route path="/virtual-detail"   element={<VirtualDetail />} />
