@@ -69,15 +69,12 @@ def realtime():
         long_count  = sum(1 for p in positions if float(p["positionAmt"]) > 0)
         short_count = sum(1 for p in positions if float(p["positionAmt"]) < 0)
 
-        # 保证金占用和持仓明细用 positionRisk 接口（字段更完整）
+        # 保证金占用
+        margin_used = float(account.get("totalInitialMargin", 0))
+
+        # 持仓明细用 positionRisk 接口（字段更完整）
         pos_risk = auth_get("/fapi/v2/positionRisk")
         active_risk = [p for p in pos_risk if float(p["positionAmt"]) != 0]
-
-        margin_used = sum(
-            float(p["isolatedMargin"]) if p.get("isolatedMargin") else
-            float(p["entryPrice"]) * abs(float(p["positionAmt"])) / int(p["leverage"])
-            for p in active_risk
-        ) if active_risk else 0
 
         details = []
         for p in sorted(active_risk, key=lambda x: float(x["unRealizedProfit"]), reverse=True):
