@@ -78,14 +78,9 @@ export default function Dashboard() {
   const virtDetail = board?.virtual_detail || []
   const virtTime = board?.virtual_detail_time || ''
 
-  // 模拟盘按方向分组汇总
-  const virtBySide = {}
-  virtDetail.forEach(r => {
-    const s = r.side
-    if (!virtBySide[s]) virtBySide[s] = { items: [], pnl: 0 }
-    virtBySide[s].items.push(r)
-    virtBySide[s].pnl += r.unrealized_pnl || 0
-  })
+  // 只取模拟空
+  const simShorts = virtDetail.filter(r => r.side === '模拟空')
+  const simShortPnl = simShorts.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
 
   return (
     <Spin spinning={loading}>
@@ -146,19 +141,10 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card size="small" title={`模拟盘快照 ${(virtTime || '').slice(5, 16)}`}>
-            {Object.entries(virtBySide).map(([side, data]) => (
-              <div key={side} style={{ marginBottom: 12 }}>
-                <div style={{ marginBottom: 4 }}>
-                  <Tag color={sideColors[side]}>{side}</Tag>
-                  <span style={{ color: pnlColor(data.pnl), fontWeight: 500 }}>{data.pnl >= 0 ? '+' : ''}{data.pnl.toFixed(2)} U</span>
-                  <span style={{ color: '#999', marginLeft: 8 }}>{data.items.length}笔</span>
-                </div>
-                <Table columns={virtColumns} dataSource={data.items.map((r, i) => ({ ...r, key: `${side}-${i}` }))}
-                  pagination={false} scroll={{ x: 'max-content' }} size="small" showHeader={side === Object.keys(virtBySide)[0]}
-                  rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
-              </div>
-            ))}
+          <Card size="small" title={<span>模拟空 ({simShorts.length}笔) <span style={{ color: pnlColor(simShortPnl), fontWeight: 500 }}>{simShortPnl >= 0 ? '+' : ''}{simShortPnl.toFixed(2)} U</span> <span style={{ color: '#999', fontWeight: 400 }}>{(virtTime || '').slice(5, 16)}</span></span>}>
+            <Table columns={virtColumns} dataSource={simShorts.map((r, i) => ({ ...r, key: i }))}
+              pagination={false} scroll={{ x: 'max-content' }} size="small"
+              rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
           </Card>
         </Col>
       </Row>
