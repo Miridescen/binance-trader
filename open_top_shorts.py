@@ -33,6 +33,7 @@ TOP_N_SHORT          = 10       # 空单最多开仓数
 TOP_N_LONG           = 10       # 多单最多开仓数
 TOP_N                = max(TOP_N_SHORT, TOP_N_LONG)  # 兼容旧引用
 MIN_CHANGE_SHORT     = 5.0      # 空单入场最低涨幅（%）
+MAX_CHANGE_SHORT     = 35.0     # 空单入场最高涨幅（%），超过的波动太大容易反噬
 MIN_CHANGE_LONG      = 8.0      # 多单入场最低跌幅（%）
 CANDIDATE_BUFFER     = 6        # 候选池倍数，过滤无市值后取前 TOP_N_SHORT/LONG
 MIN_VOLUME           = 10_000_000
@@ -630,7 +631,7 @@ def run_open():
     if market_data:
         # 过滤无市值，再按涨跌幅阈值筛选，最后取前 N 个
         top_gainers = [t for t in gainer_pool
-                       if has_mcap(t) and float(t["priceChangePercent"]) >= MIN_CHANGE_SHORT
+                       if has_mcap(t) and MIN_CHANGE_SHORT <= float(t["priceChangePercent"]) <= MAX_CHANGE_SHORT
                        ][:TOP_N_SHORT]
         top_losers  = [t for t in loser_pool
                        if has_mcap(t) and float(t["priceChangePercent"]) <= -MIN_CHANGE_LONG
@@ -643,11 +644,11 @@ def run_open():
             log_event("FILTER_NO_MCAP", detail)
     else:
         top_gainers = [t for t in gainer_pool
-                       if float(t["priceChangePercent"]) >= MIN_CHANGE_SHORT][:TOP_N_SHORT]
+                       if MIN_CHANGE_SHORT <= float(t["priceChangePercent"]) <= MAX_CHANGE_SHORT][:TOP_N_SHORT]
         top_losers  = [t for t in loser_pool
                        if float(t["priceChangePercent"]) <= -MIN_CHANGE_LONG][:TOP_N_LONG]
 
-    log.info(f"空单候选：{len(top_gainers)} 个（涨幅 >= {MIN_CHANGE_SHORT}%，上限 {TOP_N_SHORT}）")
+    log.info(f"空单候选：{len(top_gainers)} 个（涨幅 {MIN_CHANGE_SHORT}%~{MAX_CHANGE_SHORT}%，上限 {TOP_N_SHORT}）")
     log.info(f"多单候选：{len(top_losers)} 个（跌幅 >= {MIN_CHANGE_LONG}%，上限 {TOP_N_LONG}）")
 
     log.info(f"持仓模式：{'双向（对冲）' if hedge else '单向'}")
@@ -718,7 +719,7 @@ def main():
     log.info("策略定时器启动")
     log.info(f"  每天 {LIMIT_CLOSE_HOUR:02d}:{LIMIT_CLOSE_MINUTE:02d} 限价平仓")
     log.info(f"  每天 {MARKET_CLOSE_HOUR:02d}:{MARKET_CLOSE_MINUTE:02d} 市价兜底")
-    log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 开单（空单 TOP{TOP_N_SHORT} 涨幅>={MIN_CHANGE_SHORT}%）")
+    log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 开单（空单 TOP{TOP_N_SHORT} 涨幅{MIN_CHANGE_SHORT}%~{MAX_CHANGE_SHORT}%）")
 
     while True:
         # 08:30 限价平仓
