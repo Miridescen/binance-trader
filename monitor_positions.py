@@ -13,7 +13,7 @@ from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mod
 import db
 import notify
 
-STOP_LOSS_ROE_PCT    = -80          # ROE 低于此值触发止损（%）
+STOP_LOSS_ROE_PCT    = -50          # ROE 低于此值触发止损（%）
 TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
 TP_LOW_ROE           = 20           # 16:00 后止盈阈值（%），仅空单
 TP_SWITCH_HOUR       = 15           # 止盈阈值切换时间（避开16:00资金费率结算）
