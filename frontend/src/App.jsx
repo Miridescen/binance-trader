@@ -16,7 +16,7 @@ const { Header, Content } = Layout
 const ACCESS_PASSWORD = 'mu824810056'
 
 const menuItems = [
-  { key: '/',                  icon: <DashboardOutlined />,      label: '看板' },
+  { key: '/',                  icon: <DashboardOutlined />,      label: 'Dashboard' },
   { key: '/positions',         icon: <FundOutlined />,           label: '持仓监控' },
   { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
   { key: '/positions-detail',  icon: <BarChartOutlined />,       label: '持仓明细' },
