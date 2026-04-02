@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { Table, Card, Tag, Spin, Select, Space } from 'antd'
 import axios from 'axios'
 
@@ -12,179 +12,95 @@ function pnlColor(val) {
 function PnlCell({ value }) {
   const n = parseFloat(value)
   if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(value), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(2)}
-    </span>
-  )
+  return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>
 }
 
 function RoeCell({ value }) {
   const n = parseFloat(value)
   if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(value), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(2)}%
-    </span>
-  )
+  return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
 }
 
 const columns = [
-  {
-    title: '时间',
-    dataIndex: 'time',
-    key: 'time',
-    width: 100,
-    render: v => v ? v.slice(5, 16) : '-',
-  },
-  {
-    title: '币种',
-    dataIndex: 'symbol',
-    key: 'symbol',
-    width: 110,
-    filters: [],
-    onFilter: (value, record) => record.symbol === value,
-  },
-  {
-    title: '方向',
-    dataIndex: 'side',
-    key: 'side',
-    width: 70,
-    render: v => <Tag color={v === '空' ? 'green' : 'red'}>{v}</Tag>,
-    filters: [
-      { text: '多', value: '多' },
-      { text: '空', value: '空' },
-    ],
-    onFilter: (value, record) => record.side === value,
-  },
-  {
-    title: '开仓价',
-    dataIndex: 'entry_price',
-    key: 'entry_price',
-    width: 110,
-    render: v => v ? parseFloat(v).toFixed(4) : '-',
-  },
-  {
-    title: '标记价',
-    dataIndex: 'mark_price',
-    key: 'mark_price',
-    width: 110,
-    render: v => v ? parseFloat(v).toFixed(4) : '-',
-  },
-  {
-    title: '持仓量',
-    dataIndex: 'position_amt',
-    key: 'position_amt',
-    width: 100,
-    render: v => v ? parseFloat(v) : '-',
-  },
-  {
-    title: '浮动盈亏',
-    dataIndex: 'unrealized_pnl',
-    key: 'unrealized_pnl',
-    width: 110,
-    render: v => <PnlCell value={v} />,
-    sorter: (a, b) => parseFloat(a.unrealized_pnl || 0) - parseFloat(b.unrealized_pnl || 0),
-  },
-  {
-    title: 'ROE',
-    dataIndex: 'roe_pct',
-    key: 'roe_pct',
-    width: 100,
-    render: v => <RoeCell value={v} />,
-    sorter: (a, b) => parseFloat(a.roe_pct || 0) - parseFloat(b.roe_pct || 0),
-  },
+  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110, filters: [], onFilter: (v, r) => r.symbol === v },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 60, render: v => <Tag color={v === '空' ? 'green' : 'red'}>{v}</Tag> },
+  { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
+  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
+  { title: '持仓量', dataIndex: 'position_amt', key: 'position_amt', width: 80, render: v => v ? parseFloat(v) : '-' },
+  { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 90, render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },
+  { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80, render: v => <RoeCell value={v} />, sorter: (a, b) => (a.roe_pct || 0) - (b.roe_pct || 0) },
 ]
 
 export default function PositionsDetail() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [dates, setDates] = useState([])
+  const [times, setTimes] = useState([])
   const [filterDate, setFilterDate] = useState(null)
   const [filterTime, setFilterTime] = useState(null)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
 
   // 加载日期列表
   useEffect(() => {
     axios.get('/api/positions_detail/dates').then(res => {
       setDates(res.data || [])
-      if (res.data && res.data.length > 0) {
-        setFilterDate(res.data[0]) // 默认选最新日期
-      }
+      if (res.data?.length) setFilterDate(res.data[0])
     })
   }, [])
 
-  // 选日期后加载该天数据
+  // 选日期后加载时间点列表
   useEffect(() => {
     if (!filterDate) return
-    setLoading(true)
+    setTimes([])
     setFilterTime(null)
-    axios.get(`/api/positions_detail?date=${filterDate}`).then(res => {
-      const rows = res.data.map((r, i) => ({ ...r, key: i })).reverse()
-      columns.find(c => c.key === 'symbol').filters = [...new Set(rows.map(r => r.symbol))].map(s => ({ text: s, value: s }))
-      setData(rows)
-      setPagination(p => ({ ...p, current: 1 }))
-    }).finally(() => setLoading(false))
+    setData([])
+    axios.get(`/api/positions_detail/times?date=${filterDate}`).then(res => {
+      const t = res.data || []
+      setTimes(t)
+      if (t.length) setFilterTime(t[0]) // 默认最新时间点
+    })
   }, [filterDate])
 
-  const timeOptions = useMemo(() => {
-    if (!data.length) return []
-    const times = [...new Set(data.map(r => r.time.slice(11)))].sort()
-    return times.map(t => ({ label: t, value: t }))
-  }, [data])
-
-  const filtered = useMemo(() => {
-    if (!filterTime) return data
-    return data.filter(r => r.time.slice(11) === filterTime)
-  }, [data, filterTime])
+  // 选时间点后加载快照数据
+  useEffect(() => {
+    if (!filterTime) return
+    setLoading(true)
+    axios.get(`/api/positions_detail?time=${encodeURIComponent(filterTime)}`).then(res => {
+      const rows = res.data.map((r, i) => ({ ...r, key: i }))
+      columns.find(c => c.key === 'symbol').filters = [...new Set(rows.map(r => r.symbol))].map(s => ({ text: s, value: s }))
+      setData(rows)
+    }).finally(() => setLoading(false))
+  }, [filterTime])
 
   return (
     <Card size="small">
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Select
           placeholder="选择日期"
           options={dates.map(d => ({ label: d, value: d }))}
           value={filterDate}
-          onChange={val => setFilterDate(val)}
-          style={{ width: 140 }}
-        />
-        <Select
-          placeholder="选择时间快照"
-          options={timeOptions}
-          value={filterTime}
-          onChange={val => { setFilterTime(val); setPagination(p => ({ ...p, current: 1 })) }}
-          allowClear
-          disabled={!filterDate}
+          onChange={v => setFilterDate(v)}
           style={{ width: 130 }}
         />
+        <Select
+          placeholder="选择时间"
+          options={times.map(t => ({ label: t.slice(11, 19), value: t }))}
+          value={filterTime}
+          onChange={v => setFilterTime(v)}
+          disabled={!times.length}
+          style={{ width: 120 }}
+          showSearch
+        />
+        <span style={{ color: '#999', fontSize: 12 }}>{data.length} 条</span>
       </Space>
       <Spin spinning={loading}>
-        <Table
-          columns={columns}
-          dataSource={filtered}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100, 200],
-            showTotal: total => `共 ${total} 条`,
-            onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
-          }}
-          scroll={{ x: 'max-content' }}
-          size="small"
-          rowClassName={record => {
-            const pnl = parseFloat(record.unrealized_pnl)
-            if (pnl > 0) return 'row-profit'
-            if (pnl < 0) return 'row-loss'
-            return ''
-          }}
-        />
+        <Table columns={columns} dataSource={data} pagination={false}
+          scroll={{ x: 'max-content' }} size="small"
+          rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
       </Spin>
       <style>{`
         .row-profit td { background: #f6ffed !important; }
-        .row-loss   td { background: #fff1f0 !important; }
-        @media (max-width: 768px) {
-          .ant-table-cell { white-space: normal !important; word-break: break-all; }
-        }
+        .row-loss td { background: #fff1f0 !important; }
+        @media (max-width: 768px) { .ant-table-cell { white-space: normal !important; word-break: break-all; } }
       `}</style>
     </Card>
   )

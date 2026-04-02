@@ -297,12 +297,32 @@ def get_positions_detail_by_date(date: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_positions_detail_by_time(time_str: str) -> list[dict]:
+    """按精确时间点查询快照"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM positions_detail WHERE time = ? ORDER BY unrealized_pnl DESC",
+            (time_str,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_positions_detail_dates() -> list[str]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT DISTINCT SUBSTR(time, 1, 10) as date FROM positions_detail ORDER BY date DESC"
         ).fetchall()
         return [r["date"] for r in rows]
+
+
+def get_positions_detail_times(date: str) -> list[str]:
+    """获取某天的所有快照时间点"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT time FROM positions_detail WHERE time LIKE ? ORDER BY time DESC",
+            (f"{date}%",)
+        ).fetchall()
+        return [r["time"] for r in rows]
 
 
 # ── virtual_log 操作 ─────────────────────────────────────
@@ -375,12 +395,30 @@ def get_virtual_detail_by_date(date: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_virtual_detail_by_time(time_str: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM virtual_detail WHERE time = ? ORDER BY side, unrealized_pnl DESC",
+            (time_str,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_virtual_detail_dates() -> list[str]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT DISTINCT SUBSTR(time, 1, 10) as date FROM virtual_detail ORDER BY date DESC"
         ).fetchall()
         return [r["date"] for r in rows]
+
+
+def get_virtual_detail_times(date: str) -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT time FROM virtual_detail WHERE time LIKE ? ORDER BY time DESC",
+            (f"{date}%",)
+        ).fetchall()
+        return [r["time"] for r in rows]
 
 
 # 启动时自动建表

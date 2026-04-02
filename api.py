@@ -33,6 +33,9 @@ def virtual_log():
 
 @app.route("/api/positions_detail")
 def positions_detail():
+    time_str = request.args.get("time")
+    if time_str:
+        return jsonify(_strip_id(db.get_positions_detail_by_time(time_str)))
     date = request.args.get("date")
     if date:
         return jsonify(_strip_id(db.get_positions_detail_by_date(date)))
@@ -42,8 +45,18 @@ def positions_detail():
 def positions_detail_dates():
     return jsonify(db.get_positions_detail_dates())
 
+@app.route("/api/positions_detail/times")
+def positions_detail_times():
+    date = request.args.get("date")
+    if not date:
+        return jsonify([])
+    return jsonify(db.get_positions_detail_times(date))
+
 @app.route("/api/virtual_detail")
 def virtual_detail():
+    time_str = request.args.get("time")
+    if time_str:
+        return jsonify(_strip_id(db.get_virtual_detail_by_time(time_str)))
     date = request.args.get("date")
     if date:
         return jsonify(_strip_id(db.get_virtual_detail_by_date(date)))
@@ -52,6 +65,13 @@ def virtual_detail():
 @app.route("/api/virtual_detail/dates")
 def virtual_detail_dates():
     return jsonify(db.get_virtual_detail_dates())
+
+@app.route("/api/virtual_detail/times")
+def virtual_detail_times():
+    date = request.args.get("date")
+    if not date:
+        return jsonify([])
+    return jsonify(db.get_virtual_detail_times(date))
 
 @app.route("/api/realtime")
 def realtime():

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { Table, Card, Tag, Spin, Select, Space } from 'antd'
 import axios from 'axios'
 
@@ -12,190 +12,106 @@ function pnlColor(val) {
 function PnlCell({ value }) {
   const n = parseFloat(value)
   if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(value), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(2)}
-    </span>
-  )
+  return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>
 }
 
 function RoeCell({ value }) {
   const n = parseFloat(value)
   if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(value), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(2)}%
-    </span>
-  )
+  return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
 }
 
 const sideColors = { '空': 'green', '多': 'red', '模拟空': 'cyan', '模拟多': 'orange' }
 
 const columns = [
-  {
-    title: '时间',
-    dataIndex: 'time',
-    key: 'time',
-    width: 100,
-    render: v => v ? v.slice(5, 16) : '-',
-  },
-  {
-    title: '币种',
-    dataIndex: 'symbol',
-    key: 'symbol',
-    width: 110,
-    filters: [],
-    onFilter: (value, record) => record.symbol === value,
-  },
-  {
-    title: '方向',
-    dataIndex: 'side',
-    key: 'side',
-    width: 80,
-    render: v => <Tag color={sideColors[v] || 'default'}>{v}</Tag>,
-    filters: [
-      { text: '空', value: '空' },
-      { text: '多', value: '多' },
-      { text: '模拟空', value: '模拟空' },
-      { text: '模拟多', value: '模拟多' },
-    ],
-    onFilter: (value, record) => record.side === value,
-  },
-  {
-    title: '开仓价',
-    dataIndex: 'entry_price',
-    key: 'entry_price',
-    width: 110,
-    render: v => v ? parseFloat(v).toFixed(4) : '-',
-  },
-  {
-    title: '标记价',
-    dataIndex: 'mark_price',
-    key: 'mark_price',
-    width: 110,
-    render: v => v ? parseFloat(v).toFixed(4) : '-',
-  },
-  {
-    title: '浮动盈亏',
-    dataIndex: 'unrealized_pnl',
-    key: 'unrealized_pnl',
-    width: 110,
-    render: v => <PnlCell value={v} />,
-    sorter: (a, b) => parseFloat(a.unrealized_pnl || 0) - parseFloat(b.unrealized_pnl || 0),
-  },
-  {
-    title: 'ROE',
-    dataIndex: 'roe_pct',
-    key: 'roe_pct',
-    width: 100,
-    render: v => <RoeCell value={v} />,
-    sorter: (a, b) => parseFloat(a.roe_pct || 0) - parseFloat(b.roe_pct || 0),
-  },
+  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110, filters: [], onFilter: (v, r) => r.symbol === v },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 70, render: v => <Tag color={sideColors[v] || 'default'}>{v}</Tag>,
+    filters: [{ text: '空', value: '空' }, { text: '多', value: '多' }, { text: '模拟空', value: '模拟空' }, { text: '模拟多', value: '模拟多' }],
+    onFilter: (v, r) => r.side === v },
+  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
+  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
+  { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 80, render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },
+  { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80, render: v => <RoeCell value={v} />, sorter: (a, b) => (a.roe_pct || 0) - (b.roe_pct || 0) },
 ]
 
 export default function VirtualDetail() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [dates, setDates] = useState([])
+  const [times, setTimes] = useState([])
   const [filterDate, setFilterDate] = useState(null)
   const [filterTime, setFilterTime] = useState(null)
   const [filterSide, setFilterSide] = useState(null)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
 
   useEffect(() => {
     axios.get('/api/virtual_detail/dates').then(res => {
       setDates(res.data || [])
-      if (res.data && res.data.length > 0) {
-        setFilterDate(res.data[0])
-      }
+      if (res.data?.length) setFilterDate(res.data[0])
     })
   }, [])
 
   useEffect(() => {
     if (!filterDate) return
-    setLoading(true)
+    setTimes([])
     setFilterTime(null)
-    axios.get(`/api/virtual_detail?date=${filterDate}`).then(res => {
-      const rows = res.data.map((r, i) => ({ ...r, key: i })).reverse()
-      columns.find(c => c.key === 'symbol').filters = [...new Set(rows.map(r => r.symbol))].map(s => ({ text: s, value: s }))
-      setData(rows)
-      setPagination(p => ({ ...p, current: 1 }))
-    }).finally(() => setLoading(false))
+    setData([])
+    axios.get(`/api/virtual_detail/times?date=${filterDate}`).then(res => {
+      const t = res.data || []
+      setTimes(t)
+      if (t.length) setFilterTime(t[0])
+    })
   }, [filterDate])
 
-  const timeOptions = useMemo(() => {
-    if (!data.length) return []
-    const times = [...new Set(data.map(r => r.time.slice(11)))].sort()
-    return times.map(t => ({ label: t, value: t }))
-  }, [data])
+  useEffect(() => {
+    if (!filterTime) return
+    setLoading(true)
+    axios.get(`/api/virtual_detail?time=${encodeURIComponent(filterTime)}`).then(res => {
+      const rows = res.data.map((r, i) => ({ ...r, key: i }))
+      columns.find(c => c.key === 'symbol').filters = [...new Set(rows.map(r => r.symbol))].map(s => ({ text: s, value: s }))
+      setData(rows)
+    }).finally(() => setLoading(false))
+  }, [filterTime])
 
-  const filtered = useMemo(() => {
-    let result = data
-    if (filterTime) result = result.filter(r => r.time.slice(11) === filterTime)
-    if (filterSide) result = result.filter(r => r.side === filterSide)
-    return result
-  }, [data, filterTime, filterSide])
+  const filtered = filterSide ? data.filter(r => r.side === filterSide) : data
 
   return (
     <Card size="small">
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Select
           placeholder="选择日期"
           options={dates.map(d => ({ label: d, value: d }))}
           value={filterDate}
-          onChange={val => setFilterDate(val)}
-          style={{ width: 140 }}
-        />
-        <Select
-          placeholder="选择时间快照"
-          options={timeOptions}
-          value={filterTime}
-          onChange={val => { setFilterTime(val); setPagination(p => ({ ...p, current: 1 })) }}
-          allowClear
-          disabled={!filterDate}
+          onChange={v => setFilterDate(v)}
           style={{ width: 130 }}
         />
         <Select
-          placeholder="筛选方向"
-          options={[
-            { label: '空', value: '空' },
-            { label: '多', value: '多' },
-            { label: '模拟空', value: '模拟空' },
-            { label: '模拟多', value: '模拟多' },
-          ]}
-          value={filterSide}
-          onChange={val => { setFilterSide(val); setPagination(p => ({ ...p, current: 1 })) }}
-          allowClear
-          style={{ width: 110 }}
+          placeholder="选择时间"
+          options={times.map(t => ({ label: t.slice(11, 19), value: t }))}
+          value={filterTime}
+          onChange={v => setFilterTime(v)}
+          disabled={!times.length}
+          style={{ width: 120 }}
+          showSearch
         />
+        <Select
+          placeholder="方向"
+          options={[{ label: '空', value: '空' }, { label: '多', value: '多' }, { label: '模拟空', value: '模拟空' }, { label: '模拟多', value: '模拟多' }]}
+          value={filterSide}
+          onChange={v => setFilterSide(v)}
+          allowClear
+          style={{ width: 100 }}
+        />
+        <span style={{ color: '#999', fontSize: 12 }}>{filtered.length} 条</span>
       </Space>
       <Spin spinning={loading}>
-        <Table
-          columns={columns}
-          dataSource={filtered}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100, 200],
-            showTotal: total => `共 ${total} 条`,
-            onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
-          }}
-          scroll={{ x: 'max-content' }}
-          size="small"
-          rowClassName={record => {
-            const pnl = parseFloat(record.unrealized_pnl)
-            if (pnl > 0) return 'row-profit'
-            if (pnl < 0) return 'row-loss'
-            return ''
-          }}
-        />
+        <Table columns={columns} dataSource={filtered} pagination={false}
+          scroll={{ x: 'max-content' }} size="small"
+          rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
       </Spin>
       <style>{`
         .row-profit td { background: #f6ffed !important; }
-        .row-loss   td { background: #fff1f0 !important; }
-        @media (max-width: 768px) {
-          .ant-table-cell { white-space: normal !important; word-break: break-all; }
-        }
+        .row-loss td { background: #fff1f0 !important; }
+        @media (max-width: 768px) { .ant-table-cell { white-space: normal !important; word-break: break-all; } }
       `}</style>
     </Card>
   )
