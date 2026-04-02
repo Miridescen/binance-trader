@@ -415,8 +415,10 @@ def place_market_order(symbol: str, info: dict, side: str, hedge: bool):
         log.error(f"  {symbol} 市价开{direction}失败：{result.get('msg', result)}")
 
 
-def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, hedge: bool):
+def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, hedge: bool,
+                     funding_rates: dict = None):
     direction = "涨幅" if side == "SELL" else "跌幅"
+    funding_rates = funding_rates or {}
     log.info(f"── {label} ──")
     log.info(f"{direction}榜 TOP{len(tickers)}：{[t['symbol'] for t in tickers]}")
 
@@ -430,7 +432,9 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
             log.warning(f"[{i}/{TOP_N}] {symbol} 无交易对信息，跳过")
             continue
 
-        log.info(f"[{i:>2}/{len(tickers)}] {symbol} {direction}幅 {pct:>+.2f}%")
+        fr = funding_rates.get(symbol)
+        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
+        log.info(f"[{i:>2}/{len(tickers)}] {symbol} {direction}幅 {pct:>+.2f}%{fr_str}")
         if not set_leverage_verified(symbol):
             log.warning(f"  {symbol} 杠杆设置失败，跳过此币种")
             continue
@@ -670,8 +674,14 @@ def run_open():
 
     log.info(f"持仓模式：{'双向（对冲）' if hedge else '单向'}")
 
+    try:
+        funding_rates = get_all_funding_rates()
+    except Exception as e:
+        log.warning(f"获取资金费率失败：{e}")
+        funding_rates = {}
+
     open_start_ms = int(time.time() * 1000)
-    run_batch_orders("空单（涨幅榜）", top_gainers, "SELL", symbol_info, hedge)
+    run_batch_orders("空单（涨幅榜）", top_gainers, "SELL", symbol_info, hedge, funding_rates)
     log.info(f"多单已转为模拟盘观察，不实盘开仓（{len(top_losers)} 个标的）")
     open_end_ms = int(time.time() * 1000)
 
@@ -682,12 +692,6 @@ def run_open():
     except Exception as e:
         log.warning(f"获取 BTC 涨跌幅失败：{e}")
         btc_pct = None
-
-    try:
-        funding_rates = get_all_funding_rates()
-    except Exception as e:
-        log.warning(f"获取资金费率失败：{e}")
-        funding_rates = {}
 
     all_symbols = [t["symbol"] for t in top_gainers + top_losers]
 

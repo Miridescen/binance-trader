@@ -240,7 +240,8 @@ def virtual_open():
         oi  = oi_changes.get(sym)
         ls  = ls_ratios.get(sym)
 
-        log.info(f"  {sym} 模拟多  涨跌 {pct:+.2f}%  入场价 {entry:.4f}")
+        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
+        log.info(f"  {sym} 模拟多  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
 
         new_rows.append({
             "open_time":           ts,
@@ -281,7 +282,8 @@ def virtual_open():
         oi  = oi_changes.get(sym)
         ls  = ls_ratios.get(sym)
 
-        log.info(f"  {sym} 模拟空  涨跌 {pct:+.2f}%  入场价 {entry:.4f}")
+        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
+        log.info(f"  {sym} 模拟空  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
 
         new_rows.append({
             "open_time":           ts,
