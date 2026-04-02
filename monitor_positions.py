@@ -18,7 +18,7 @@ TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
 TP_LOW_ROE           = 20           # 16:00 后止盈阈值（%），仅空单
 TP_SWITCH_HOUR       = 15           # 止盈阈值切换时间（避开16:00资金费率结算）
 TP_SWITCH_MINUTE     = 30           # 切换分钟
-CHECK_INTERVAL       = 60           # 检查间隔（秒）
+CHECK_INTERVAL       = 20           # 检查间隔（秒）
 SPECIAL_SNAPSHOTS    = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
 logging.basicConfig(
