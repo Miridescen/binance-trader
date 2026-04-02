@@ -106,6 +106,19 @@ const columns = [
     },
   },
   {
+    title: '资金费率',
+    dataIndex: 'symbol_funding_rate',
+    key: 'symbol_funding_rate',
+    width: 90,
+    render: v => {
+      const n = parseFloat(v)
+      if (isNaN(n)) return '-'
+      const pct = (n * 100).toFixed(4)
+      return <span style={{ color: n >= 0 ? '#cf1322' : '#3f8600' }}>{n >= 0 ? '+' : ''}{pct}%</span>
+    },
+    sorter: (a, b) => parseFloat(a.symbol_funding_rate || 0) - parseFloat(b.symbol_funding_rate || 0),
+  },
+  {
     title: '开仓价',
     dataIndex: 'entry_price',
     key: 'entry_price',
