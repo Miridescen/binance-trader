@@ -248,6 +248,7 @@ def run_limit_close():
     """08:30 第一阶段：限价平仓"""
     log.info("=" * 50)
     log.info("【限价平仓开始】08:30")
+    close_start_ms = int(time.time() * 1000)
     hedge = is_hedge_mode()
     positions = auth_get("/fapi/v2/positionRisk")
     active = [p for p in positions if float(p["positionAmt"]) != 0]
@@ -319,14 +320,15 @@ def run_limit_close():
         pending = still_pending
 
     log.info(f"【限价平仓阶段结束】剩余未成交：{len(pending)} 个")
-    return pending
+    return pending, close_start_ms
 
 
-def run_market_close(remaining: dict):
+def run_market_close(remaining: dict, close_start_ms: int = 0):
     """08:50 第二阶段：市价兜底"""
     log.info("=" * 50)
     log.info("【市价兜底平仓】08:50")
-    close_start_ms = int(time.time() * 1000)
+    if not close_start_ms:
+        close_start_ms = int(time.time() * 1000)
     hedge = is_hedge_mode()
 
     # 先撤掉所有未成交的限价单
@@ -746,15 +748,16 @@ def main():
         # 08:30 限价平仓
         wait_until(LIMIT_CLOSE_HOUR, LIMIT_CLOSE_MINUTE)
         remaining = {}
+        close_start_ms = 0
         try:
-            remaining = run_limit_close()
+            remaining, close_start_ms = run_limit_close()
         except Exception as e:
             log.error(f"限价平仓出错：{e}", exc_info=True)
 
         # 08:50 市价兜底
         wait_until(MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE)
         try:
-            run_market_close(remaining)
+            run_market_close(remaining, close_start_ms)
         except Exception as e:
             log.error(f"市价平仓出错：{e}", exc_info=True)
 
