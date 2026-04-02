@@ -470,6 +470,11 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
                 log.info(f"  {symbol} 未成交（{status}），换价重下（第{attempt}次）")
                 cancel_order(symbol, data["orderId"])
                 time.sleep(0.3)   # 等待撤单生效
+                # 撤单后再查一次，确认不是刚好成交了
+                recheck = get_order_status(symbol, data["orderId"])
+                if recheck == "FILLED":
+                    log.info(f"  {symbol} 撤单时已成交 ✅")
+                    continue
                 result = place_limit_order(symbol, data["info"], side, hedge, attempt)
                 if result:
                     still_pending[symbol] = result
@@ -480,9 +485,21 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
     # 市价兜底
     if pending:
         log.warning(f"仍有 {len(pending)} 个 {label} 未成交，改用市价单...")
+        # 先获取当前持仓，避免对已有持仓的币重复下单
+        positions = auth_get("/fapi/v2/positionRisk")
+        held_symbols = {p["symbol"] for p in positions if float(p["positionAmt"]) != 0}
+
         for symbol, data in pending.items():
             cancel_order(symbol, data["orderId"])
             time.sleep(0.3)
+            # 检查撤单后是否已成交
+            recheck = get_order_status(symbol, data["orderId"])
+            if recheck == "FILLED":
+                log.info(f"  {symbol} 撤单时已成交 ✅")
+                continue
+            if symbol in held_symbols:
+                log.info(f"  {symbol} 已有持仓，跳过市价兜底")
+                continue
             place_market_order(symbol, data["info"], side, hedge)
             time.sleep(0.15)
 
