@@ -310,7 +310,7 @@ def virtual_open():
 
 # ── 虚拟持仓快照 ──────────────────────────────────────
 
-MONITOR_INTERVAL = 20   # 快照间隔（分钟）
+MONITOR_INTERVAL = 2    # 快照间隔（分钟）
 
 def virtual_snapshot():
     """对所有未平仓虚拟仓位拍快照，记录当前 PnL/ROE"""

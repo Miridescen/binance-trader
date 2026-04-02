@@ -304,7 +304,7 @@ def main():
     hedge              = is_hedge_mode()
     last_report_slot   = -1       # 上次采集的时间槽（每20分钟一个槽）
     reported_specials  = set()    # 记录当天已触发的特殊快照 (hour, minute)
-    REPORT_INTERVAL    = 20       # 采集间隔（分钟）
+    REPORT_INTERVAL    = 2        # 采集间隔（分钟）
 
     # 启动时立即统计一次
     try:
