@@ -174,6 +174,7 @@ def virtual_open():
     for label, tickers_group, side_str in [
         ("空单（涨幅榜）", top_gainers, "空"),
         ("多单（跌幅榜）", top_losers,  "多"),
+        ("多单（涨幅榜）", top_gainers, "涨幅做多"),
     ]:
         log.info(f"── 对照组：{label} ──")
         for t in tickers_group:

@@ -59,7 +59,7 @@ const columns = [
     key: 'side',
     width: 70,
     render: v => {
-      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange', '模拟空': 'cyan', '跌幅对照空': 'purple' }
+      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange', '模拟空': 'cyan', '跌幅对照空': 'purple', '涨幅做多': 'volcano' }
       return <Tag color={colors[v] || 'default'}>{v}</Tag>
     },
     filters: [
@@ -68,6 +68,7 @@ const columns = [
       { text: '模拟多', value: '模拟多' },
       { text: '模拟空', value: '模拟空' },
       { text: '跌幅对照空', value: '跌幅对照空' },
+      { text: '涨幅做多', value: '涨幅做多' },
     ],
     onFilter: (value, record) => record.side === value,
   },
