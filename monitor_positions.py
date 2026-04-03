@@ -9,17 +9,11 @@ import os
 import time
 import logging
 from datetime import datetime
-from binance_client import auth_get, auth_post, get_funding_income, is_hedge_mode, get_commissions_by_symbol
+from binance_client import auth_get, get_funding_income, is_hedge_mode
 import db
-import notify
 
-STOP_LOSS_ROE_PCT    = -50          # ROE 低于此值触发止损（%）
-TP_HIGH_ROE          = 50           # 16:00 前止盈阈值（%），仅空单
-TP_LOW_ROE           = 20           # 16:00 后止盈阈值（%），仅空单
-TP_SWITCH_HOUR       = 15           # 止盈阈值切换时间（避开16:00资金费率结算）
-TP_SWITCH_MINUTE     = 30           # 切换分钟
 CHECK_INTERVAL       = 20           # 检查间隔（秒）
-SPECIAL_SNAPSHOTS    = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
+SPECIAL_SNAPSHOTS    = {(8, 25), (9, 30)}   # 额外快照时间点 (hour, minute)：平仓前 / 开仓后
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,117 +35,6 @@ def get_account_balance() -> float:
         if asset["asset"] == "USDT":
             return float(asset["marginBalance"])
     return 0.0
-
-
-# ── 止损 ───────────────────────────────────────────────
-
-def log_event(event: str, detail: str):
-    db.insert_event(event, detail)
-
-def close_position(p: dict, hedge: bool) -> bool:
-    """市价平掉单个持仓，成功返回 True"""
-    symbol = p["symbol"]
-    amt    = float(p["positionAmt"])
-    side   = "BUY" if amt < 0 else "SELL"
-    params = {"symbol": symbol, "side": side, "type": "MARKET",
-              "quantity": abs(amt), "reduceOnly": "true"}
-    if hedge:
-        params.pop("reduceOnly")
-        params["positionSide"] = "SHORT" if amt < 0 else "LONG"
-    result = auth_post("/fapi/v1/order", params)
-    return "orderId" in result
-
-def _update_open_log_on_close(p: dict, reason: str, close_ms: int):
-    """止盈/止损平仓后，回填 open_log 中的收益数据、平仓原因和手续费"""
-    amt      = float(p["positionAmt"])
-    entry    = float(p["entryPrice"])
-    mark     = float(p["markPrice"])
-    pnl      = float(p["unRealizedProfit"])
-    leverage = int(p["leverage"])
-    margin   = entry * abs(amt) / leverage if leverage and entry else 0
-    roe      = pnl / margin * 100 if margin else 0
-    ts       = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    symbol   = p["symbol"]
-
-    # 查询本次平仓的手续费
-    commission = None
-    try:
-        comms = get_commissions_by_symbol(close_ms - 5000, close_ms + 5000)
-        commission = comms.get(symbol)
-    except Exception as e:
-        log.warning(f"  {symbol} 获取平仓手续费失败：{e}")
-
-    db.update_close_data(symbol, "", {
-        "close_time":       ts,
-        "entry_price":      entry,
-        "close_price":      mark,
-        "position_amt":     abs(amt),
-        "unrealized_pnl":   pnl,
-        "roe_pct":          roe,
-        "leverage":         leverage,
-        "close_reason":     reason,
-        "close_commission": commission,
-    })
-
-
-def _get_tp_threshold() -> float:
-    """根据当前时间返回止盈阈值：15:30前用高阈值，15:30后用低阈值"""
-    now = datetime.now()
-    # 09:00-15:29 用高阈值，15:30-08:59 用低阈值
-    if 9 <= now.hour < TP_SWITCH_HOUR:
-        return TP_HIGH_ROE
-    if now.hour == TP_SWITCH_HOUR and now.minute < TP_SWITCH_MINUTE:
-        return TP_HIGH_ROE
-    return TP_LOW_ROE
-
-
-def check_stop_loss_and_take_profit(positions: list, hedge: bool):
-    """检查所有持仓：ROE <= -80% 止损，空单动态止盈（16:00前>=50%，之后>=20%）"""
-    tp_threshold = _get_tp_threshold()
-
-    for p in positions:
-        amt      = float(p["positionAmt"])
-        entry    = float(p["entryPrice"])
-        mark     = float(p["markPrice"])
-        pnl      = float(p["unRealizedProfit"])
-        leverage = int(p["leverage"])
-        margin   = entry * abs(amt) / leverage if leverage and entry else 0
-        if margin == 0:
-            continue
-        roe = pnl / margin * 100
-        symbol   = p["symbol"]
-        side_str = "空" if amt < 0 else "多"
-
-        # 止损检查（多单和空单都检查）
-        if roe <= STOP_LOSS_ROE_PCT:
-            log.warning(f"【止损触发】{symbol} {side_str}  ROE {roe:+.1f}%  入场 {entry:.4f}  标记 {mark:.4f}")
-            close_ms = int(time.time() * 1000)
-            if close_position(p, hedge):
-                _update_open_log_on_close(p, "止损", close_ms)
-                log_event("STOP_LOSS", f"{symbol} {side_str} ROE={roe:.1f}% entry={entry} mark={mark}")
-                log.warning(f"  {symbol} 止损平仓成功 ✅")
-                try:
-                    notify.send_tp_sl_alert(symbol, side_str, "止损", roe, pnl, entry, mark)
-                except Exception:
-                    pass
-            else:
-                log.error(f"  {symbol} 止损平仓失败 ❌")
-            continue
-
-        # 动态止盈检查（仅空单）
-        if amt < 0 and roe >= tp_threshold:
-            log.info(f"【止盈触发】{symbol} {side_str}  ROE {roe:+.1f}% >= {tp_threshold}%  入场 {entry:.4f}  标记 {mark:.4f}")
-            close_ms = int(time.time() * 1000)
-            if close_position(p, hedge):
-                _update_open_log_on_close(p, "止盈", close_ms)
-                log_event("TAKE_PROFIT", f"{symbol} {side_str} ROE={roe:.1f}% threshold={tp_threshold}% entry={entry} mark={mark}")
-                log.info(f"  {symbol} 止盈平仓成功 ✅")
-                try:
-                    notify.send_tp_sl_alert(symbol, side_str, "止盈", roe, pnl, entry, mark)
-                except Exception:
-                    pass
-            else:
-                log.error(f"  {symbol} 止盈平仓失败 ❌")
 
 
 # ── 统计 ───────────────────────────────────────────────
@@ -296,12 +179,10 @@ def collect_and_report():
     save_detail_csv(positions, now)
 
 def main():
-    log.info(f"持仓监控启动  止损：ROE ≤ {STOP_LOSS_ROE_PCT}%  "
-             f"止盈(空单)：{TP_SWITCH_HOUR}:{TP_SWITCH_MINUTE:02d}前>={TP_HIGH_ROE}% / 之后>={TP_LOW_ROE}%  间隔：{CHECK_INTERVAL}s")
+    log.info(f"持仓监控启动  间隔：{CHECK_INTERVAL}s（仅监控，无止盈止损）")
     log.info(f"持仓日志：SQLite 数据库")
     log.info(f"特殊快照时间：{sorted(SPECIAL_SNAPSHOTS)}")
 
-    hedge              = is_hedge_mode()
     last_report_slot   = -1       # 上次采集的时间槽（每20分钟一个槽）
     reported_specials  = set()    # 记录当天已触发的特殊快照 (hour, minute)
     REPORT_INTERVAL    = 2        # 采集间隔（分钟）
@@ -317,12 +198,6 @@ def main():
     while True:
         time.sleep(CHECK_INTERVAL)
         now = datetime.now()
-
-        try:
-            positions = get_positions()
-            check_stop_loss_and_take_profit(positions, hedge)
-        except Exception as e:
-            log.error(f"止损检查失败：{e}")
 
         # 每天 0 点重置特殊快照记录
         if now.hour == 0 and now.minute < 1:
