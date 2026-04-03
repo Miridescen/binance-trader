@@ -421,10 +421,9 @@ def place_market_order(symbol: str, info: dict, side: str, hedge: bool):
 
 def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, hedge: bool,
                      funding_rates: dict = None):
-    direction = "涨幅" if side == "SELL" else "跌幅"
     funding_rates = funding_rates or {}
     log.info(f"── {label} ──")
-    log.info(f"{direction}榜 TOP{len(tickers)}：{[t['symbol'] for t in tickers]}")
+    log.info(f"TOP{len(tickers)}：{[t['symbol'] for t in tickers]}")
 
     # 第一轮下单
     pending = {}
@@ -438,7 +437,7 @@ def run_batch_orders(label: str, tickers: list, side: str, symbol_info: dict, he
 
         fr = funding_rates.get(symbol)
         fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
-        log.info(f"[{i:>2}/{len(tickers)}] {symbol} {direction}幅 {pct:>+.2f}%{fr_str}")
+        log.info(f"[{i:>2}/{len(tickers)}] {symbol} 涨跌 {pct:>+.2f}%{fr_str}")
         if not set_leverage_verified(symbol):
             log.warning(f"  {symbol} 杠杆设置失败，跳过此币种")
             continue
