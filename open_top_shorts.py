@@ -2,7 +2,7 @@
 每天定时策略：
   08:30 → 限价平仓（每60秒换价重挂）
   08:50 → 未成交的改市价兜底清仓
-  09:01 → 涨幅榜 TOP10（涨幅 >= 5%）开 3 倍限价空单，每单保证金 10 USDT
+  08:51 → 涨幅榜 TOP10（涨幅 >= 5%）开 3 倍限价空单，每单保证金 10 USDT
          跌幅榜 TOP10（跌幅 >= 8%）开 3 倍限价空单，每单保证金 10 USDT
   未成交则每 60 秒换价重下，最多 10 次，超过后改市价单
 """
@@ -42,7 +42,7 @@ ORDER_CHECK_INTERVAL = 60
 MAX_RETRIES          = 10
 LIMIT_CLOSE_HOUR, LIMIT_CLOSE_MINUTE = 8, 30   # 限价平仓开始时间
 MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE = 8, 50  # 市价兜底平仓时间
-OPEN_HOUR, OPEN_MINUTE = 9, 1
+OPEN_HOUR, OPEN_MINUTE = 8, 51
 CLOSE_CHECK_INTERVAL = 60                       # 限价平仓检查间隔（秒）
 
 
