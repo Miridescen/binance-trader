@@ -64,10 +64,14 @@ const columns = [
     dataIndex: 'side',
     key: 'side',
     width: 70,
-    render: v => <Tag color={v === '空' ? 'green' : 'red'}>{v}</Tag>,
+    render: v => {
+      const colors = { '空': 'green', '跌幅空': 'purple', '多': 'red' }
+      return <Tag color={colors[v] || 'default'}>{v}</Tag>
+    },
     filters: [
-      { text: '多', value: '多' },
       { text: '空', value: '空' },
+      { text: '跌幅空', value: '跌幅空' },
+      { text: '多', value: '多' },
     ],
     onFilter: (value, record) => record.side === value,
   },

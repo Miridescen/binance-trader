@@ -21,7 +21,7 @@ function RoeCell({ value }) {
   return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
 }
 
-const sideColors = { '空': 'green', '多': 'red', '模拟空': 'cyan', '模拟多': 'orange' }
+const sideColors = { '空': 'green', '跌幅空': 'purple', '多': 'red', '模拟空': 'cyan', '模拟多': 'orange', '跌幅对照空': 'purple' }
 
 const realColumns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110 },
@@ -69,9 +69,11 @@ export default function Dashboard() {
   const balance = rt?.balance || 0
   const marginUsed = rt?.margin_used || 0
   const totalPnl = rt?.total_pnl || 0
-  const shortPnl = rt?.short_pnl || 0
-  const shortCount = rt?.short_count || 0
   const positions = rt?.positions || []
+  const gainerShorts = positions.filter(r => r.side === '空')
+  const loserShorts = positions.filter(r => r.side === '跌幅空')
+  const gainerShortPnl = gainerShorts.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
+  const loserShortPnl = loserShorts.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
 
   const monitor = board?.monitor
   const realDetail = board?.real_detail || []
@@ -117,9 +119,16 @@ export default function Dashboard() {
         </Col>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title={`空单 (${shortCount}笔)`} value={Math.abs(shortPnl)} precision={2} suffix="U"
-              prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: pnlColor(shortPnl) }} />
+            <Statistic title={`涨幅空 (${gainerShorts.length}笔)`} value={Math.abs(gainerShortPnl)} precision={2} suffix="U"
+              prefix={gainerShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: pnlColor(gainerShortPnl) }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title={`跌幅空 (${loserShorts.length}笔)`} value={Math.abs(loserShortPnl)} precision={2} suffix="U"
+              prefix={loserShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: pnlColor(loserShortPnl) }} />
           </Card>
         </Col>
       </Row>
@@ -139,8 +148,15 @@ export default function Dashboard() {
       {/* 实盘持仓 vs 模拟盘 */}
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={8}>
-          <Card size="small" title={`实盘持仓 (${positions.length}笔) ${(realTime || '').slice(5, 16)}`}>
-            <Table columns={realColumns} dataSource={positions.map((r, i) => ({ ...r, key: i }))}
+          <Card size="small" title={<span>涨幅空 ({gainerShorts.length}笔) <span style={{ color: pnlColor(gainerShortPnl), fontWeight: 500 }}>{gainerShortPnl >= 0 ? '+' : ''}{gainerShortPnl.toFixed(2)} U</span></span>}>
+            <Table columns={realColumns} dataSource={gainerShorts.map((r, i) => ({ ...r, key: i }))}
+              pagination={false} scroll={{ x: 'max-content' }} size="small"
+              rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
+          </Card>
+        </Col>
+        <Col xs={24} lg={8}>
+          <Card size="small" title={<span>跌幅空 ({loserShorts.length}笔) <span style={{ color: pnlColor(loserShortPnl), fontWeight: 500 }}>{loserShortPnl >= 0 ? '+' : ''}{loserShortPnl.toFixed(2)} U</span></span>}>
+            <Table columns={realColumns} dataSource={loserShorts.map((r, i) => ({ ...r, key: i }))}
               pagination={false} scroll={{ x: 'max-content' }} size="small"
               rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
           </Card>

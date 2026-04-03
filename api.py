@@ -96,6 +96,20 @@ def realtime():
         pos_risk = auth_get("/fapi/v2/positionRisk")
         active_risk = [p for p in pos_risk if float(p["positionAmt"]) != 0]
 
+        # 从 open_log 获取今日开仓记录的 side 标记，用于区分涨幅空/跌幅空
+        today = __import__('datetime').datetime.now().strftime("%Y-%m-%d")
+        side_map = {}
+        try:
+            with db.get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT symbol, side FROM open_log WHERE open_time LIKE ? AND close_time IS NULL",
+                    (f"{today}%",)
+                ).fetchall()
+                for r in rows:
+                    side_map[r["symbol"]] = r["side"]
+        except Exception:
+            pass
+
         details = []
         for p in sorted(active_risk, key=lambda x: float(x["unRealizedProfit"]), reverse=True):
             amt = float(p["positionAmt"])
@@ -105,9 +119,11 @@ def realtime():
             lev = int(p["leverage"])
             margin = entry * abs(amt) / lev if lev and entry else 0
             roe = pnl / margin * 100 if margin else 0
+            sym = p["symbol"]
+            side = side_map.get(sym, "空" if amt < 0 else "多")
             details.append({
-                "symbol": p["symbol"],
-                "side": "空" if amt < 0 else "多",
+                "symbol": sym,
+                "side": side,
                 "entry_price": round(entry, 6),
                 "mark_price": round(mark, 6),
                 "position_amt": round(abs(amt), 4),

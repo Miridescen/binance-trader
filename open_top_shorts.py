@@ -586,7 +586,7 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
     csv_rows = []
     for label, tickers, side_str in [
         ("空单（涨幅榜）", top_gainers, "空"),
-        ("空单（跌幅榜）", top_losers,  "空"),
+        ("空单（跌幅榜）", top_losers,  "跌幅空"),
     ]:
         print(f"  {label}")
         for t in tickers:
