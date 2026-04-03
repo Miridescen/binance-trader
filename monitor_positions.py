@@ -13,7 +13,7 @@ from binance_client import auth_get, get_funding_income, is_hedge_mode
 import db
 
 CHECK_INTERVAL       = 20           # 检查间隔（秒）
-SPECIAL_SNAPSHOTS    = {(8, 25), (9, 30)}   # 额外快照时间点 (hour, minute)：平仓前 / 开仓后
+SPECIAL_SNAPSHOTS    = {(8, 50), (9, 30)}   # 额外快照时间点 (hour, minute)
 
 logging.basicConfig(
     level=logging.INFO,

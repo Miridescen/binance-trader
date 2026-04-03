@@ -1,6 +1,7 @@
 """
 每天定时策略：
-  08:30 → 市价平掉所有持仓（定时平仓，无止盈止损）
+  08:30 → 限价平仓（每60秒换价重挂）
+  08:50 → 未成交的改市价兜底清仓
   09:01 → 涨幅榜 TOP10（涨幅 >= 5%）开 3 倍限价空单，每单保证金 10 USDT
          跌幅榜 TOP10（跌幅 >= 8%）开 3 倍限价空单，每单保证金 10 USDT
   未成交则每 60 秒换价重下，最多 10 次，超过后改市价单
@@ -39,8 +40,10 @@ CANDIDATE_BUFFER     = 6        # 候选池倍数，过滤无市值后取前 TOP
 MIN_VOLUME           = 10_000_000
 ORDER_CHECK_INTERVAL = 60
 MAX_RETRIES          = 10
-CLOSE_HOUR, CLOSE_MINUTE = 8, 30   # 定时平仓时间
+LIMIT_CLOSE_HOUR, LIMIT_CLOSE_MINUTE = 8, 30   # 限价平仓开始时间
+MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE = 8, 50  # 市价兜底平仓时间
 OPEN_HOUR, OPEN_MINUTE = 9, 1
+CLOSE_CHECK_INTERVAL = 60                       # 限价平仓检查间隔（秒）
 
 
 # ── 格式工具 ───────────────────────────────────────────
@@ -199,13 +202,56 @@ def save_close_summary_csv(positions: list, now: datetime):
     log.info("批次盈亏已写入数据库")
 
 
-def run_close():
-    """08:30 市价平仓所有持仓"""
+def close_all_positions_limit(hedge: bool, symbol_info: dict) -> dict:
+    """限价平掉所有持仓，返回 {symbol: data} 等待成交"""
+    positions = auth_get("/fapi/v2/positionRisk")
+    active    = [p for p in positions if float(p["positionAmt"]) != 0]
+    if not active:
+        log.info("当前无持仓，无需平仓")
+        return {}
+
+    pending = {}
+    for p in active:
+        symbol = p["symbol"]
+        amt    = float(p["positionAmt"])
+        mark   = float(p["markPrice"])
+        side   = "BUY" if amt < 0 else "SELL"
+        info   = symbol_info.get(symbol)
+        if not info:
+            log.warning(f"  {symbol} 无交易对信息，跳过限价平仓")
+            continue
+
+        tick = info["tick_size"]
+        step = info["step_size"]
+        price = round_to_tick(mark, tick)
+
+        params = {
+            "symbol": symbol, "side": side, "type": "LIMIT",
+            "price": fmt(price, tick), "quantity": fmt(abs(amt), step),
+            "timeInForce": "GTC", "reduceOnly": "true",
+        }
+        if hedge:
+            params.pop("reduceOnly")
+            params["positionSide"] = "SHORT" if amt < 0 else "LONG"
+
+        result = auth_post("/fapi/v1/order", params)
+        if "orderId" in result:
+            log.info(f"限价平仓 {symbol} {'空→买' if side=='BUY' else '多→卖'} 数量 {fmt(abs(amt), step)} 限价 {fmt(price, tick)} ✅")
+            pending[symbol] = {"orderId": result["orderId"], "amt": abs(amt), "info": info, "side": side, "hedge_side": "SHORT" if amt < 0 else "LONG"}
+        else:
+            log.error(f"限价平仓 {symbol} 失败：{result.get('msg', result)}")
+        time.sleep(0.15)
+
+    log.info(f"共挂限价平仓单 {len(pending)} 个")
+    return pending
+
+
+def run_limit_close():
+    """08:30 第一阶段：限价平仓"""
     log.info("=" * 50)
-    log.info("【定时平仓开始】08:30")
+    log.info("【限价平仓开始】08:30")
     close_start_ms = int(time.time() * 1000)
     hedge = is_hedge_mode()
-
     positions = auth_get("/fapi/v2/positionRisk")
     active = [p for p in positions if float(p["positionAmt"]) != 0]
     if active:
@@ -224,7 +270,77 @@ def run_close():
     log.info("撤销所有挂单...")
     cancel_all_open_orders()
 
-    log.info("市价平仓所有持仓...")
+    log.info("获取交易对信息...")
+    _, symbol_info = get_exchange_info()
+
+    log.info("挂限价平仓单...")
+    pending = close_all_positions_limit(hedge, symbol_info)
+
+    # 每 60 秒检查一次，未成交的换价重挂，直到 08:50
+    while pending:
+        now = datetime.now()
+        if now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE:
+            break
+
+        log.info(f"等待 {CLOSE_CHECK_INTERVAL}s 后检查限价平仓单（剩余 {len(pending)} 个）...")
+        time.sleep(CLOSE_CHECK_INTERVAL)
+
+        still_pending = {}
+        for symbol, data in pending.items():
+            status = get_order_status(symbol, data["orderId"])
+            if status == "FILLED":
+                log.info(f"  {symbol} 限价平仓已成交 ✅")
+            elif status == "PARTIALLY_FILLED":
+                log.info(f"  {symbol} 部分成交，继续等待...")
+                still_pending[symbol] = data
+            else:
+                # 未成交，换价重挂
+                cancel_order(symbol, data["orderId"])
+                time.sleep(0.3)
+                mark = get_mark_price(symbol)
+                info = data["info"]
+                tick = info["tick_size"]
+                step = info["step_size"]
+                price = round_to_tick(mark, tick)
+                params = {
+                    "symbol": symbol, "side": data["side"], "type": "LIMIT",
+                    "price": fmt(price, tick), "quantity": fmt(data["amt"], step),
+                    "timeInForce": "GTC", "reduceOnly": "true",
+                }
+                if hedge:
+                    params.pop("reduceOnly")
+                    params["positionSide"] = data["hedge_side"]
+                result = auth_post("/fapi/v1/order", params)
+                if "orderId" in result:
+                    log.info(f"  {symbol} 换价重挂 限价 {fmt(price, tick)} ✅")
+                    still_pending[symbol] = {**data, "orderId": result["orderId"]}
+                else:
+                    log.error(f"  {symbol} 换价失败：{result.get('msg', result)}")
+                    still_pending[symbol] = data
+                time.sleep(0.15)
+
+        pending = still_pending
+
+    log.info(f"【限价平仓阶段结束】剩余未成交：{len(pending)} 个")
+    return pending, close_start_ms
+
+
+def run_market_close(remaining: dict, close_start_ms: int = 0):
+    """08:50 第二阶段：市价兜底"""
+    log.info("=" * 50)
+    log.info("【市价兜底平仓】08:50")
+    if not close_start_ms:
+        close_start_ms = int(time.time() * 1000)
+    hedge = is_hedge_mode()
+
+    # 先撤掉所有未成交的限价单
+    if remaining:
+        log.info(f"撤销 {len(remaining)} 个未成交限价平仓单...")
+        for symbol, data in remaining.items():
+            cancel_order(symbol, data["orderId"])
+            time.sleep(0.15)
+
+    # 市价清掉剩余持仓
     close_all_positions_market(hedge)
     close_end_ms = int(time.time() * 1000)
 
@@ -625,17 +741,27 @@ def wait_until(hour: int, minute: int):
 
 def main():
     log.info("策略定时器启动")
-    log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 定时平仓（市价）")
+    log.info(f"  每天 {LIMIT_CLOSE_HOUR:02d}:{LIMIT_CLOSE_MINUTE:02d} 限价平仓")
+    log.info(f"  每天 {MARKET_CLOSE_HOUR:02d}:{MARKET_CLOSE_MINUTE:02d} 市价兜底")
     log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 开单"
              f"（涨幅榜空 TOP{TOP_N_SHORT} ≥{MIN_CHANGE_SHORT}% + 跌幅榜空 TOP{TOP_N_LOSER_SHORT} ≥{MIN_CHANGE_LONG}%）")
 
     while True:
-        # 08:30 定时平仓
-        wait_until(CLOSE_HOUR, CLOSE_MINUTE)
+        # 08:30 限价平仓
+        wait_until(LIMIT_CLOSE_HOUR, LIMIT_CLOSE_MINUTE)
+        remaining = {}
+        close_start_ms = 0
         try:
-            run_close()
+            remaining, close_start_ms = run_limit_close()
         except Exception as e:
-            log.error(f"平仓出错：{e}", exc_info=True)
+            log.error(f"限价平仓出错：{e}", exc_info=True)
+
+        # 08:50 市价兜底
+        wait_until(MARKET_CLOSE_HOUR, MARKET_CLOSE_MINUTE)
+        try:
+            run_market_close(remaining, close_start_ms)
+        except Exception as e:
+            log.error(f"市价平仓出错：{e}", exc_info=True)
 
         # 09:01 开仓
         wait_until(OPEN_HOUR, OPEN_MINUTE)
