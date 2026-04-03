@@ -59,7 +59,7 @@ const columns = [
     key: 'side',
     width: 70,
     render: v => {
-      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange', '模拟空': 'cyan' }
+      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange', '模拟空': 'cyan', '跌幅对照空': 'purple' }
       return <Tag color={colors[v] || 'default'}>{v}</Tag>
     },
     filters: [
@@ -67,6 +67,7 @@ const columns = [
       { text: '空', value: '空' },
       { text: '模拟多', value: '模拟多' },
       { text: '模拟空', value: '模拟空' },
+      { text: '跌幅对照空', value: '跌幅对照空' },
     ],
     onFilter: (value, record) => record.side === value,
   },
@@ -170,6 +171,7 @@ export default function VirtualLog() {
   const shortClosed = closed.filter(r => r.side === '空')
   const simLongClosed  = closed.filter(r => r.side === '模拟多')
   const simShortClosed = closed.filter(r => r.side === '模拟空')
+  const loserCtrlClosed = closed.filter(r => r.side === '跌幅对照空')
   const sum = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
   const winRate = arr => arr.length ? (arr.filter(r => parseFloat(r.unrealized_pnl) > 0).length / arr.length * 100).toFixed(0) : 0
 
@@ -178,6 +180,7 @@ export default function VirtualLog() {
   const shortPnl    = sum(shortClosed)
   const simLongPnl  = sum(simLongClosed)
   const simShortPnl = sum(simShortClosed)
+  const loserCtrlPnl = sum(loserCtrlClosed)
 
   return (
     <div>
@@ -225,6 +228,13 @@ export default function VirtualLog() {
             <Statistic title="模拟多盈亏" value={Math.abs(simLongPnl).toFixed(2)} suffix="U"
               prefix={simLongPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: simLongPnl >= 0 ? '#3f8600' : '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6} lg={4}>
+          <Card size="small">
+            <Statistic title="跌幅对照空" value={Math.abs(loserCtrlPnl).toFixed(2)} suffix="U"
+              prefix={loserCtrlPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: loserCtrlPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={6} lg={4}>

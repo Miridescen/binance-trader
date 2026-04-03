@@ -72,7 +72,7 @@ def virtual_close():
             continue
 
         notional = MARGIN_PER_POS * LEVERAGE
-        if side in ("空", "模拟空"):
+        if side in ("空", "模拟空", "跌幅对照空"):
             pnl = (entry - mark) / entry * notional
         else:
             pnl = (mark - entry) / entry * notional
@@ -85,7 +85,7 @@ def virtual_close():
             "roe_pct":        roe,
         })
         closed += 1
-        direction = "空→买" if side in ("空", "模拟空") else "多→卖"
+        direction = "空→买" if side in ("空", "模拟空", "跌幅对照空") else "多→卖"
         log.info(f"  {sym}({side}) {direction}  入场 {entry:.4f}  出场 {mark:.4f}  PnL {pnl:+.4f}  ROE {roe:+.1f}%")
         time.sleep(0.1)
 
@@ -305,6 +305,49 @@ def virtual_open():
         })
         time.sleep(0.1)
 
+    # ── 跌幅榜对照组空单（无市值/涨跌幅过滤，TOP10） ──
+    loser_ctrl = tickers[-TOP_N:][::-1]
+    log.info(f"── 跌幅对照空（无过滤，TOP{TOP_N}）：{len(loser_ctrl)} 个 ──")
+    for t in loser_ctrl:
+        sym = t["symbol"]
+        pct = float(t["priceChangePercent"])
+
+        try:
+            entry = get_mark_price(sym)
+        except Exception as e:
+            log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
+            continue
+
+        md  = market_data.get(sym, {})
+        mc  = md.get("market_cap", 0)
+        cs  = md.get("circulating_supply", 0)
+        fr  = funding_rates.get(sym)
+        oi  = oi_changes.get(sym)
+        ls  = ls_ratios.get(sym)
+
+        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
+        log.info(f"  {sym} 跌幅对照空  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
+
+        new_rows.append({
+            "open_time":           ts,
+            "close_time":          None,
+            "symbol":              sym,
+            "side":                "跌幅对照空",
+            "change_pct":          pct,
+            "market_cap_usd":      fmt_large(mc) if mc else None,
+            "circulating_supply":  fmt_large(cs) if cs else None,
+            "has_mcap":            1 if mc else 0,
+            "btc_change_pct":      btc_pct,
+            "symbol_funding_rate": fr,
+            "oi_change_pct":       oi,
+            "long_short_ratio":    ls,
+            "entry_price":         entry,
+            "close_price":         None,
+            "unrealized_pnl":      None,
+            "roe_pct":             None,
+        })
+        time.sleep(0.1)
+
     if new_rows:
         db.insert_virtual_log(new_rows)
     log.info(f"【虚拟开仓完成】共记录 {len(new_rows)} 笔虚拟仓位")
@@ -337,7 +380,7 @@ def virtual_snapshot():
             continue
 
         notional = MARGIN_PER_POS * LEVERAGE
-        if side in ("空", "模拟空"):
+        if side in ("空", "模拟空", "跌幅对照空"):
             pnl = (entry - mark) / entry * notional
         else:
             pnl = (mark - entry) / entry * notional
