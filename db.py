@@ -421,5 +421,23 @@ def get_virtual_detail_times(date: str) -> list[str]:
         return [r["time"] for r in rows]
 
 
+def backup_virtual_tables(suffix: str = "bak_0407"):
+    """备份 virtual_log / virtual_detail 表，然后清空原表"""
+    with get_conn() as conn:
+        for table in ("virtual_log", "virtual_detail"):
+            bak = f"{table}_{suffix}"
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (bak,)
+            ).fetchone()
+            if exists:
+                print(f"  备份表 {bak} 已存在，跳过")
+                continue
+            conn.execute(f"ALTER TABLE {table} RENAME TO {bak}")
+            print(f"  {table} → {bak}")
+        # 重建空表
+        init_db()
+        print("  已重建空表")
+
+
 # 启动时自动建表
 init_db()

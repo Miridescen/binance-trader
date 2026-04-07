@@ -63,15 +63,14 @@ const columns = [
     title: '方向',
     dataIndex: 'side',
     key: 'side',
-    width: 70,
+    width: 140,
     render: v => {
-      const colors = { '空': 'green', '跌幅空': 'purple', '多': 'red' }
-      return <Tag color={colors[v] || 'default'}>{v}</Tag>
+      const color = v?.includes('空') ? 'green' : v?.includes('多') ? 'red' : 'default'
+      return <Tag color={color}>{v}</Tag>
     },
     filters: [
-      { text: '空', value: '空' },
-      { text: '跌幅空', value: '跌幅空' },
-      { text: '多', value: '多' },
+      { text: '涨幅榜-空（有过滤）', value: '涨幅榜-空（有过滤）' },
+      { text: '跌幅榜-空（有过滤）', value: '跌幅榜-空（有过滤）' },
     ],
     onFilter: (value, record) => record.side === value,
   },

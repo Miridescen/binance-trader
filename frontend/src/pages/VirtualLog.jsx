@@ -57,18 +57,20 @@ const columns = [
     title: '方向',
     dataIndex: 'side',
     key: 'side',
-    width: 70,
+    width: 140,
     render: v => {
-      const colors = { '空': 'green', '多': 'red', '模拟多': 'orange', '模拟空': 'cyan', '跌幅对照空': 'purple', '涨幅做多': 'volcano' }
-      return <Tag color={colors[v] || 'default'}>{v}</Tag>
+      const color = v?.includes('空') ? 'green' : v?.includes('多') ? 'red' : 'default'
+      return <Tag color={color}>{v}</Tag>
     },
     filters: [
-      { text: '多', value: '多' },
-      { text: '空', value: '空' },
-      { text: '模拟多', value: '模拟多' },
-      { text: '模拟空', value: '模拟空' },
-      { text: '跌幅对照空', value: '跌幅对照空' },
-      { text: '涨幅做多', value: '涨幅做多' },
+      { text: '涨幅榜-空（有过滤）', value: '涨幅榜-空（有过滤）' },
+      { text: '涨幅榜-空（无过滤）', value: '涨幅榜-空（无过滤）' },
+      { text: '涨幅榜-多（有过滤）', value: '涨幅榜-多（有过滤）' },
+      { text: '涨幅榜-多（无过滤）', value: '涨幅榜-多（无过滤）' },
+      { text: '跌幅榜-空（有过滤）', value: '跌幅榜-空（有过滤）' },
+      { text: '跌幅榜-空（无过滤）', value: '跌幅榜-空（无过滤）' },
+      { text: '跌幅榜-多（有过滤）', value: '跌幅榜-多（有过滤）' },
+      { text: '跌幅榜-多（无过滤）', value: '跌幅榜-多（无过滤）' },
     ],
     onFilter: (value, record) => record.side === value,
   },
@@ -168,20 +170,16 @@ export default function VirtualLog() {
   }, [])
 
   const closed = data.filter(r => r.close_time)
-  const longClosed  = closed.filter(r => r.side === '多')
-  const shortClosed = closed.filter(r => r.side === '空')
-  const simLongClosed  = closed.filter(r => r.side === '模拟多')
-  const simShortClosed = closed.filter(r => r.side === '模拟空')
-  const loserCtrlClosed = closed.filter(r => r.side === '跌幅对照空')
-  const sum = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
-  const winRate = arr => arr.length ? (arr.filter(r => parseFloat(r.unrealized_pnl) > 0).length / arr.length * 100).toFixed(0) : 0
+  const sumPnl = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
 
-  const totalPnl    = sum(closed)
-  const longPnl     = sum(longClosed)
-  const shortPnl    = sum(shortClosed)
-  const simLongPnl  = sum(simLongClosed)
-  const simShortPnl = sum(simShortClosed)
-  const loserCtrlPnl = sum(loserCtrlClosed)
+  const sides = [
+    '涨幅榜-空（有过滤）', '涨幅榜-空（无过滤）',
+    '涨幅榜-多（有过滤）', '涨幅榜-多（无过滤）',
+    '跌幅榜-空（有过滤）', '跌幅榜-空（无过滤）',
+    '跌幅榜-多（有过滤）', '跌幅榜-多（无过滤）',
+  ]
+  const sidePnl = Object.fromEntries(sides.map(s => [s, sumPnl(closed.filter(r => r.side === s))]))
+  const totalPnl = sumPnl(closed)
 
   return (
     <div>
@@ -193,51 +191,18 @@ export default function VirtualLog() {
               valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="多单盈亏" value={Math.abs(longPnl).toFixed(2)} suffix="U"
-              prefix={longPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: longPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="空单盈亏" value={Math.abs(shortPnl).toFixed(2)} suffix="U"
-              prefix={shortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: shortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="多单胜率" value={winRate(longClosed)} suffix="%" />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="空单胜率" value={winRate(shortClosed)} suffix="%" />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="模拟空盈亏" value={Math.abs(simShortPnl).toFixed(2)} suffix="U"
-              prefix={simShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: simShortPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="模拟多盈亏" value={Math.abs(simLongPnl).toFixed(2)} suffix="U"
-              prefix={simLongPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: simLongPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={4}>
-          <Card size="small">
-            <Statistic title="跌幅对照空" value={Math.abs(loserCtrlPnl).toFixed(2)} suffix="U"
-              prefix={loserCtrlPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: loserCtrlPnl >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
+        {sides.map(s => {
+          const pnl = sidePnl[s]
+          return (
+            <Col xs={12} sm={8} md={6} lg={4} key={s}>
+              <Card size="small">
+                <Statistic title={s} value={Math.abs(pnl).toFixed(2)} suffix="U"
+                  prefix={pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                  valueStyle={{ color: pnl >= 0 ? '#3f8600' : '#cf1322', fontSize: 16 }} />
+              </Card>
+            </Col>
+          )
+        })}
         <Col xs={12} sm={8} md={6} lg={4}>
           <Card size="small">
             <Statistic title="总交易笔数" value={closed.length} suffix="笔" />

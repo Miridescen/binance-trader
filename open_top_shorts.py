@@ -566,7 +566,7 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
     long_short_ratios = long_short_ratios or {}
     btc_str = f"{btc_pct:+.2f}%" if btc_pct is not None else "N/A"
 
-    C = {"symbol": 14, "side": 4, "pct": 10, "fr": 10, "oi": 10, "ls": 8, "comm": 10, "mcap": 13, "supply": 18}
+    C = {"symbol": 14, "side": 16, "pct": 10, "fr": 10, "oi": 10, "ls": 8, "comm": 10, "mcap": 13, "supply": 18}
     divider = "-" * (sum(C.values()) + len(C) * 3 + 1)
     header  = "=" * len(divider)
 
@@ -584,8 +584,8 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
 
     csv_rows = []
     for label, tickers, side_str in [
-        ("空单（涨幅榜）", top_gainers, "空"),
-        ("空单（跌幅榜）", top_losers,  "跌幅空"),
+        ("空单（涨幅榜）", top_gainers, "涨幅榜-空（有过滤）"),
+        ("空单（跌幅榜）", top_losers,  "跌幅榜-空（有过滤）"),
     ]:
         print(f"  {label}")
         for t in tickers:

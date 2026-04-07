@@ -72,7 +72,8 @@ def virtual_close():
             continue
 
         notional = MARGIN_PER_POS * LEVERAGE
-        if side in ("空", "模拟空", "跌幅对照空"):
+        is_short = "空" in side
+        if is_short:
             pnl = (entry - mark) / entry * notional
         else:
             pnl = (mark - entry) / entry * notional
@@ -85,7 +86,7 @@ def virtual_close():
             "roe_pct":        roe,
         })
         closed += 1
-        direction = "空→买" if side in ("空", "模拟空", "跌幅对照空") else "多→卖"
+        direction = "空→买" if is_short else "多→卖"
         log.info(f"  {sym}({side}) {direction}  入场 {entry:.4f}  出场 {mark:.4f}  PnL {pnl:+.4f}  ROE {roe:+.1f}%")
         time.sleep(0.1)
 
@@ -101,16 +102,14 @@ def virtual_open():
     tickers = get_ticker_24h(valid_symbols, MIN_VOLUME)
     tickers.sort(key=lambda x: float(x["priceChangePercent"]), reverse=True)
 
-    # ── 原有对照组：涨跌幅各 TOP10，不过滤 ──
-    top_gainers = tickers[:TOP_N]
-    top_losers  = tickers[-TOP_N:][::-1]
-
-    # ── 模拟组候选池（与实盘相同参数） ──
-    short_candidate_pool = tickers[:SHORT_TOP_N * CANDIDATE_BUF]
-    long_candidate_pool  = tickers[-(LONG_TOP_N * CANDIDATE_BUF):][::-1]
+    # ── 候选池 ──
+    gainer_pool_raw = tickers[:TOP_N]                          # 涨幅榜 TOP10（无过滤）
+    loser_pool_raw  = tickers[-TOP_N:][::-1]                   # 跌幅榜 TOP10（无过滤）
+    gainer_pool_big = tickers[:SHORT_TOP_N * CANDIDATE_BUF]    # 涨幅榜候选池（有过滤用）
+    loser_pool_big  = tickers[-(LONG_TOP_N * CANDIDATE_BUF):][::-1]
 
     all_syms = list(set(
-        [t["symbol"] for t in top_gainers + top_losers + short_candidate_pool + long_candidate_pool]
+        [t["symbol"] for t in gainer_pool_raw + loser_pool_raw + gainer_pool_big + loser_pool_big]
     ))
 
     # 拉市值
@@ -123,22 +122,23 @@ def virtual_open():
     def has_mcap(t):
         return bool(market_data.get(t["symbol"], {}).get("market_cap"))
 
-    # 筛选模拟组
+    # ── 筛选有过滤的候选 ──
     if market_data:
-        sim_shorts = [t for t in short_candidate_pool
-                      if has_mcap(t) and float(t["priceChangePercent"]) >= SHORT_MIN_CHANGE
-                      ][:SHORT_TOP_N]
-        sim_longs  = [t for t in long_candidate_pool
-                      if has_mcap(t) and float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
-                      ][:LONG_TOP_N]
+        gainer_filtered = [t for t in gainer_pool_big
+                           if has_mcap(t) and float(t["priceChangePercent"]) >= SHORT_MIN_CHANGE
+                           ][:SHORT_TOP_N]
+        loser_filtered  = [t for t in loser_pool_big
+                           if has_mcap(t) and float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
+                           ][:LONG_TOP_N]
     else:
-        sim_shorts = [t for t in short_candidate_pool
-                      if float(t["priceChangePercent"]) >= SHORT_MIN_CHANGE
-                      ][:SHORT_TOP_N]
-        sim_longs  = [t for t in long_candidate_pool
-                      if float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
-                      ][:LONG_TOP_N]
+        gainer_filtered = [t for t in gainer_pool_big
+                           if float(t["priceChangePercent"]) >= SHORT_MIN_CHANGE
+                           ][:SHORT_TOP_N]
+        loser_filtered  = [t for t in loser_pool_big
+                           if float(t["priceChangePercent"]) <= -LONG_MIN_CHANGE
+                           ][:LONG_TOP_N]
 
+    # ── 采集辅助指标 ──
     try:
         btc_pct = get_btc_change_pct()
         log.info(f"BTC 24h涨跌幅：{btc_pct:+.2f}%")
@@ -170,14 +170,21 @@ def virtual_open():
     ts  = now.strftime("%Y-%m-%d %H:%M:%S")
     new_rows = []
 
-    # ── 写入原有对照组（涨跌幅榜各 TOP10，不过滤市值） ──
-    for label, tickers_group, side_str in [
-        ("空单（涨幅榜）", top_gainers, "空"),
-        ("多单（跌幅榜）", top_losers,  "多"),
-        ("多单（涨幅榜）", top_gainers, "涨幅做多"),
-    ]:
-        log.info(f"── 对照组：{label} ──")
-        for t in tickers_group:
+    # ── 8 组虚拟仓位 ──
+    groups = [
+        ("涨幅榜-空（有过滤）", gainer_filtered, "空"),
+        ("涨幅榜-空（无过滤）", gainer_pool_raw, "空"),
+        ("涨幅榜-多（有过滤）", gainer_filtered, "多"),
+        ("涨幅榜-多（无过滤）", gainer_pool_raw, "多"),
+        ("跌幅榜-空（有过滤）", loser_filtered,  "空"),
+        ("跌幅榜-空（无过滤）", loser_pool_raw,  "空"),
+        ("跌幅榜-多（有过滤）", loser_filtered,  "多"),
+        ("跌幅榜-多（无过滤）", loser_pool_raw,  "多"),
+    ]
+
+    for side_label, ticker_group, direction in groups:
+        log.info(f"── {side_label}（{len(ticker_group)} 个）──")
+        for t in ticker_group:
             sym = t["symbol"]
             pct = float(t["priceChangePercent"])
 
@@ -187,30 +194,25 @@ def virtual_open():
                 log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
                 continue
 
-            md       = market_data.get(sym, {})
-            mc       = md.get("market_cap", 0)
-            cs       = md.get("circulating_supply", 0)
-            has_mcap_flag = 1 if mc else 0
-            fr       = funding_rates.get(sym)
-            oi       = oi_changes.get(sym)
-            ls       = ls_ratios.get(sym)
+            md  = market_data.get(sym, {})
+            mc  = md.get("market_cap", 0)
+            cs  = md.get("circulating_supply", 0)
+            fr  = funding_rates.get(sym)
+            oi  = oi_changes.get(sym)
+            ls  = ls_ratios.get(sym)
 
-            log.info(
-                f"  {sym} {side_str}  涨跌 {pct:+.2f}%  "
-                f"入场价 {entry:.4f}  市值 {'有' if mc else '无'}  "
-                f"资金费 {fr*100:+.4f}%" if fr is not None else
-                f"  {sym} {side_str}  涨跌 {pct:+.2f}%  入场价 {entry:.4f}  市值 {'有' if mc else '无'}"
-            )
+            fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
+            log.info(f"  {sym} {side_label}  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
 
             new_rows.append({
                 "open_time":           ts,
                 "close_time":          None,
                 "symbol":              sym,
-                "side":                side_str,
+                "side":                side_label,
                 "change_pct":          pct,
                 "market_cap_usd":      fmt_large(mc) if mc else None,
                 "circulating_supply":  fmt_large(cs) if cs else None,
-                "has_mcap":            has_mcap_flag,
+                "has_mcap":            1 if mc else 0,
                 "btc_change_pct":      btc_pct,
                 "symbol_funding_rate": fr,
                 "oi_change_pct":       oi,
@@ -221,133 +223,6 @@ def virtual_open():
                 "roe_pct":             None,
             })
             time.sleep(0.1)
-
-    # ── 写入多单模拟组（与实盘相同参数） ──
-    log.info(f"── 多单模拟（实盘参数：跌幅>={LONG_MIN_CHANGE}%，市值过滤，TOP{LONG_TOP_N}）：{len(sim_longs)} 个 ──")
-    for t in sim_longs:
-        sym = t["symbol"]
-        pct = float(t["priceChangePercent"])
-
-        try:
-            entry = get_mark_price(sym)
-        except Exception as e:
-            log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
-            continue
-
-        md  = market_data.get(sym, {})
-        mc  = md.get("market_cap", 0)
-        cs  = md.get("circulating_supply", 0)
-        fr  = funding_rates.get(sym)
-        oi  = oi_changes.get(sym)
-        ls  = ls_ratios.get(sym)
-
-        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
-        log.info(f"  {sym} 模拟多  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
-
-        new_rows.append({
-            "open_time":           ts,
-            "close_time":          None,
-            "symbol":              sym,
-            "side":                "模拟多",
-            "change_pct":          pct,
-            "market_cap_usd":      fmt_large(mc) if mc else None,
-            "circulating_supply":  fmt_large(cs) if cs else None,
-            "has_mcap":            1,
-            "btc_change_pct":      btc_pct,
-            "symbol_funding_rate": fr,
-            "oi_change_pct":       oi,
-            "long_short_ratio":    ls,
-            "entry_price":         entry,
-            "close_price":         None,
-            "unrealized_pnl":      None,
-            "roe_pct":             None,
-        })
-        time.sleep(0.1)
-
-    # ── 写入空单模拟组（与实盘相同参数） ──
-    log.info(f"── 空单模拟（实盘参数：涨幅>={SHORT_MIN_CHANGE}%，市值过滤，TOP{SHORT_TOP_N}）：{len(sim_shorts)} 个 ──")
-    for t in sim_shorts:
-        sym = t["symbol"]
-        pct = float(t["priceChangePercent"])
-
-        try:
-            entry = get_mark_price(sym)
-        except Exception as e:
-            log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
-            continue
-
-        md  = market_data.get(sym, {})
-        mc  = md.get("market_cap", 0)
-        cs  = md.get("circulating_supply", 0)
-        fr  = funding_rates.get(sym)
-        oi  = oi_changes.get(sym)
-        ls  = ls_ratios.get(sym)
-
-        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
-        log.info(f"  {sym} 模拟空  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
-
-        new_rows.append({
-            "open_time":           ts,
-            "close_time":          None,
-            "symbol":              sym,
-            "side":                "模拟空",
-            "change_pct":          pct,
-            "market_cap_usd":      fmt_large(mc) if mc else None,
-            "circulating_supply":  fmt_large(cs) if cs else None,
-            "has_mcap":            1,
-            "btc_change_pct":      btc_pct,
-            "symbol_funding_rate": fr,
-            "oi_change_pct":       oi,
-            "long_short_ratio":    ls,
-            "entry_price":         entry,
-            "close_price":         None,
-            "unrealized_pnl":      None,
-            "roe_pct":             None,
-        })
-        time.sleep(0.1)
-
-    # ── 跌幅榜对照组空单（无市值/涨跌幅过滤，TOP10） ──
-    loser_ctrl = tickers[-TOP_N:][::-1]
-    log.info(f"── 跌幅对照空（无过滤，TOP{TOP_N}）：{len(loser_ctrl)} 个 ──")
-    for t in loser_ctrl:
-        sym = t["symbol"]
-        pct = float(t["priceChangePercent"])
-
-        try:
-            entry = get_mark_price(sym)
-        except Exception as e:
-            log.warning(f"  {sym} 获取标记价失败，跳过：{e}")
-            continue
-
-        md  = market_data.get(sym, {})
-        mc  = md.get("market_cap", 0)
-        cs  = md.get("circulating_supply", 0)
-        fr  = funding_rates.get(sym)
-        oi  = oi_changes.get(sym)
-        ls  = ls_ratios.get(sym)
-
-        fr_str = f"  资金费率 {fr*100:+.4f}%" if fr is not None else ""
-        log.info(f"  {sym} 跌幅对照空  涨跌 {pct:+.2f}%  入场价 {entry:.4f}{fr_str}")
-
-        new_rows.append({
-            "open_time":           ts,
-            "close_time":          None,
-            "symbol":              sym,
-            "side":                "跌幅对照空",
-            "change_pct":          pct,
-            "market_cap_usd":      fmt_large(mc) if mc else None,
-            "circulating_supply":  fmt_large(cs) if cs else None,
-            "has_mcap":            1 if mc else 0,
-            "btc_change_pct":      btc_pct,
-            "symbol_funding_rate": fr,
-            "oi_change_pct":       oi,
-            "long_short_ratio":    ls,
-            "entry_price":         entry,
-            "close_price":         None,
-            "unrealized_pnl":      None,
-            "roe_pct":             None,
-        })
-        time.sleep(0.1)
 
     if new_rows:
         db.insert_virtual_log(new_rows)
@@ -381,7 +256,7 @@ def virtual_snapshot():
             continue
 
         notional = MARGIN_PER_POS * LEVERAGE
-        if side in ("空", "模拟空", "跌幅对照空"):
+        if "空" in side:
             pnl = (entry - mark) / entry * notional
         else:
             pnl = (mark - entry) / entry * notional
@@ -418,9 +293,8 @@ def main():
     log.info(f"  每天 {CLOSE_HOUR:02d}:{CLOSE_MINUTE:02d} 虚拟平仓")
     log.info(f"  每天 {OPEN_HOUR:02d}:{OPEN_MINUTE:02d} 虚拟开仓")
     log.info(f"  持仓快照：每 {MONITOR_INTERVAL} 分钟")
-    log.info(f"  对照组：涨跌幅榜各 TOP{TOP_N}（不过滤市值）")
-    log.info(f"  模拟空：涨幅>={SHORT_MIN_CHANGE}% + 市值过滤，TOP{SHORT_TOP_N}")
-    log.info(f"  模拟多：跌幅>={LONG_MIN_CHANGE}% + 市值过滤，TOP{LONG_TOP_N}")
+    log.info(f"  8组：涨幅榜/跌幅榜 × 做空/做多 × 有过滤/无过滤")
+    log.info(f"  有过滤参数：涨幅>={SHORT_MIN_CHANGE}% / 跌幅>={LONG_MIN_CHANGE}% + 市值过滤，各TOP{TOP_N}")
     log.info(f"  日志：SQLite 数据库")
 
     did_close = False

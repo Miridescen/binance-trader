@@ -21,11 +21,9 @@ function RoeCell({ value }) {
   return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
 }
 
-const sideColors = { '空': 'green', '跌幅空': 'purple', '多': 'red', '模拟空': 'cyan', '模拟多': 'orange', '跌幅对照空': 'purple' }
-
 const realColumns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110 },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 60, render: v => <Tag color={sideColors[v] || 'default'}>{v}</Tag> },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 140, render: v => <Tag color={v?.includes('空') ? 'green' : 'red'}>{v}</Tag> },
   { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 90, render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },
@@ -70,8 +68,8 @@ export default function Dashboard() {
   const marginUsed = rt?.margin_used || 0
   const totalPnl = rt?.total_pnl || 0
   const positions = rt?.positions || []
-  const gainerShorts = positions.filter(r => r.side === '空')
-  const loserShorts = positions.filter(r => r.side === '跌幅空')
+  const gainerShorts = positions.filter(r => r.side === '涨幅榜-空（有过滤）')
+  const loserShorts = positions.filter(r => r.side === '跌幅榜-空（有过滤）')
   const gainerShortPnl = gainerShorts.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
   const loserShortPnl = loserShorts.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
 
@@ -81,13 +79,12 @@ export default function Dashboard() {
   const virtDetail = board?.virtual_detail || []
   const virtTime = board?.virtual_detail_time || ''
 
-  // 模拟空（涨幅榜）
-  const simShorts = virtDetail.filter(r => r.side === '模拟空')
-  const simShortPnl = simShorts.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
-
-  // 跌幅对照空
-  const loserCtrl = virtDetail.filter(r => r.side === '跌幅对照空')
-  const loserCtrlPnl = loserCtrl.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
+  const sumPnl = arr => arr.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
+  // 虚拟盘有过滤组（与实盘对比用）
+  const virtGainerShort = virtDetail.filter(r => r.side === '涨幅榜-空（有过滤）')
+  const virtLoserShort  = virtDetail.filter(r => r.side === '跌幅榜-空（有过滤）')
+  const virtGainerShortPnl = sumPnl(virtGainerShort)
+  const virtLoserShortPnl  = sumPnl(virtLoserShort)
 
   return (
     <Spin spinning={loading}>
@@ -119,14 +116,14 @@ export default function Dashboard() {
         </Col>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title={`涨幅空 (${gainerShorts.length}笔)`} value={Math.abs(gainerShortPnl)} precision={2} suffix="U"
+            <Statistic title={`涨幅榜空 (${gainerShorts.length}笔)`} value={Math.abs(gainerShortPnl)} precision={2} suffix="U"
               prefix={gainerShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: pnlColor(gainerShortPnl) }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title={`跌幅空 (${loserShorts.length}笔)`} value={Math.abs(loserShortPnl)} precision={2} suffix="U"
+            <Statistic title={`跌幅榜空 (${loserShorts.length}笔)`} value={Math.abs(loserShortPnl)} precision={2} suffix="U"
               prefix={loserShortPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: pnlColor(loserShortPnl) }} />
           </Card>
@@ -145,36 +142,36 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* 第一行：涨幅空（实盘） vs 模拟空·涨幅榜 */}
+      {/* 第一行：涨幅榜空（实盘 vs 虚拟） */}
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
         <Col xs={24} lg={12}>
-          <Card size="small" title={<span>涨幅空 ({gainerShorts.length}笔) <span style={{ color: pnlColor(gainerShortPnl), fontWeight: 500 }}>{gainerShortPnl >= 0 ? '+' : ''}{gainerShortPnl.toFixed(2)} U</span></span>}>
+          <Card size="small" title={<span>实盘·涨幅榜空 ({gainerShorts.length}笔) <span style={{ color: pnlColor(gainerShortPnl), fontWeight: 500 }}>{gainerShortPnl >= 0 ? '+' : ''}{gainerShortPnl.toFixed(2)} U</span></span>}>
             <Table columns={realColumns} dataSource={gainerShorts.map((r, i) => ({ ...r, key: i }))}
               pagination={false} scroll={{ x: 'max-content' }} size="small"
               rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card size="small" title={<span>模拟空·涨幅榜 ({simShorts.length}笔) <span style={{ color: pnlColor(simShortPnl), fontWeight: 500 }}>{simShortPnl >= 0 ? '+' : ''}{simShortPnl.toFixed(2)} U</span> <span style={{ color: '#999', fontWeight: 400 }}>{(virtTime || '').slice(5, 16)}</span></span>}>
-            <Table columns={virtColumns} dataSource={simShorts.map((r, i) => ({ ...r, key: i }))}
+          <Card size="small" title={<span>虚拟·涨幅榜空 ({virtGainerShort.length}笔) <span style={{ color: pnlColor(virtGainerShortPnl), fontWeight: 500 }}>{virtGainerShortPnl >= 0 ? '+' : ''}{virtGainerShortPnl.toFixed(2)} U</span> <span style={{ color: '#999', fontWeight: 400 }}>{(virtTime || '').slice(5, 16)}</span></span>}>
+            <Table columns={virtColumns} dataSource={virtGainerShort.map((r, i) => ({ ...r, key: i }))}
               pagination={false} scroll={{ x: 'max-content' }} size="small"
               rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
           </Card>
         </Col>
       </Row>
 
-      {/* 第二行：跌幅空（实盘） vs 跌幅对照空 */}
+      {/* 第二行：跌幅榜空（实盘 vs 虚拟） */}
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={12}>
-          <Card size="small" title={<span>跌幅空 ({loserShorts.length}笔) <span style={{ color: pnlColor(loserShortPnl), fontWeight: 500 }}>{loserShortPnl >= 0 ? '+' : ''}{loserShortPnl.toFixed(2)} U</span></span>}>
+          <Card size="small" title={<span>实盘·跌幅榜空 ({loserShorts.length}笔) <span style={{ color: pnlColor(loserShortPnl), fontWeight: 500 }}>{loserShortPnl >= 0 ? '+' : ''}{loserShortPnl.toFixed(2)} U</span></span>}>
             <Table columns={realColumns} dataSource={loserShorts.map((r, i) => ({ ...r, key: i }))}
               pagination={false} scroll={{ x: 'max-content' }} size="small"
               rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card size="small" title={<span>跌幅对照空 ({loserCtrl.length}笔) <span style={{ color: pnlColor(loserCtrlPnl), fontWeight: 500 }}>{loserCtrlPnl >= 0 ? '+' : ''}{loserCtrlPnl.toFixed(2)} U</span> <span style={{ color: '#999', fontWeight: 400 }}>{(virtTime || '').slice(5, 16)}</span></span>}>
-            <Table columns={virtColumns} dataSource={loserCtrl.map((r, i) => ({ ...r, key: i }))}
+          <Card size="small" title={<span>虚拟·跌幅榜空 ({virtLoserShort.length}笔) <span style={{ color: pnlColor(virtLoserShortPnl), fontWeight: 500 }}>{virtLoserShortPnl >= 0 ? '+' : ''}{virtLoserShortPnl.toFixed(2)} U</span> <span style={{ color: '#999', fontWeight: 400 }}>{(virtTime || '').slice(5, 16)}</span></span>}>
+            <Table columns={virtColumns} dataSource={virtLoserShort.map((r, i) => ({ ...r, key: i }))}
               pagination={false} scroll={{ x: 'max-content' }} size="small"
               rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
           </Card>

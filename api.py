@@ -119,7 +119,7 @@ def realtime():
             margin = entry * abs(amt) / lev if lev and entry else 0
             roe = pnl / margin * 100 if margin else 0
             sym = p["symbol"]
-            side = side_map.get(sym, "空" if amt < 0 else "多")
+            side = side_map.get(sym, "涨幅榜-空（有过滤）" if amt < 0 else "多")
             details.append({
                 "symbol": sym,
                 "side": side,
