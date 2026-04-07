@@ -172,42 +172,51 @@ export default function VirtualLog() {
   const closed = data.filter(r => r.close_time)
   const sumPnl = arr => arr.reduce((acc, r) => acc + parseFloat(r.unrealized_pnl || 0), 0)
 
-  const sides = [
-    '涨幅榜-空（有过滤）', '涨幅榜-空（无过滤）',
-    '涨幅榜-多（有过滤）', '涨幅榜-多（无过滤）',
-    '跌幅榜-空（有过滤）', '跌幅榜-空（无过滤）',
-    '跌幅榜-多（有过滤）', '跌幅榜-多（无过滤）',
+  const groups = [
+    { label: '涨幅榜-空', filtered: '涨幅榜-空（有过滤）', unfiltered: '涨幅榜-空（无过滤）' },
+    { label: '涨幅榜-多', filtered: '涨幅榜-多（有过滤）', unfiltered: '涨幅榜-多（无过滤）' },
+    { label: '跌幅榜-空', filtered: '跌幅榜-空（有过滤）', unfiltered: '跌幅榜-空（无过滤）' },
+    { label: '跌幅榜-多', filtered: '跌幅榜-多（有过滤）', unfiltered: '跌幅榜-多（无过滤）' },
   ]
-  const sidePnl = Object.fromEntries(sides.map(s => [s, sumPnl(closed.filter(r => r.side === s))]))
   const totalPnl = sumPnl(closed)
 
   return (
     <div>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={8} md={6} lg={4}>
+        <Col xs={24} sm={12} md={6}>
           <Card size="small">
             <Statistic title="总盈亏(虚拟)" value={Math.abs(totalPnl).toFixed(2)} suffix="U"
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: totalPnl >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
-        {sides.map(s => {
-          const pnl = sidePnl[s]
-          return (
-            <Col xs={12} sm={8} md={6} lg={4} key={s}>
-              <Card size="small">
-                <Statistic title={s} value={Math.abs(pnl).toFixed(2)} suffix="U"
-                  prefix={pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                  valueStyle={{ color: pnl >= 0 ? '#3f8600' : '#cf1322', fontSize: 16 }} />
-              </Card>
-            </Col>
-          )
-        })}
-        <Col xs={12} sm={8} md={6} lg={4}>
+        <Col xs={24} sm={12} md={6}>
           <Card size="small">
             <Statistic title="总交易笔数" value={closed.length} suffix="笔" />
           </Card>
         </Col>
+      </Row>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        {groups.map(g => {
+          const fPnl = sumPnl(closed.filter(r => r.side === g.filtered))
+          const uPnl = sumPnl(closed.filter(r => r.side === g.unfiltered))
+          return (
+            <Col xs={24} sm={12} md={6} key={g.label}>
+              <Card size="small" title={g.label}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ color: '#999', fontSize: 12 }}>有过滤</div>
+                    <b style={{ color: pnlColor(fPnl), fontSize: 16 }}>{fPnl >= 0 ? '+' : ''}{fPnl.toFixed(1)} U</b>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: '#999', fontSize: 12 }}>无过滤</div>
+                    <b style={{ color: pnlColor(uPnl), fontSize: 16 }}>{uPnl >= 0 ? '+' : ''}{uPnl.toFixed(1)} U</b>
+                  </div>
+                </div>
+              </Card>
+            </Col>
+          )
+        })}
       </Row>
 
       <Card size="small">

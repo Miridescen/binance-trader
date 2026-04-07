@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Spin, Tag, Row, Col, Statistic } from 'antd'
+import { Card, Table, Spin, Row, Col, Statistic } from 'antd'
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import axios from 'axios'
 
@@ -9,23 +9,26 @@ function pnlColor(n) {
   return '#999'
 }
 
-const SIDES = [
-  '涨幅榜-空（有过滤）', '涨幅榜-空（无过滤）',
-  '涨幅榜-多（有过滤）', '涨幅榜-多（无过滤）',
-  '跌幅榜-空（有过滤）', '跌幅榜-空（无过滤）',
-  '跌幅榜-多（有过滤）', '跌幅榜-多（无过滤）',
+function PnlCell({ v, decimal = 1 }) {
+  if (!v) return <span style={{ color: '#ccc' }}>-</span>
+  return (
+    <span style={{ color: pnlColor(v.pnl), fontWeight: 500 }}>
+      {v.pnl >= 0 ? '+' : ''}{v.pnl.toFixed(decimal)}
+      <br />
+      <span style={{ color: '#999', fontWeight: 400, fontSize: 11 }}>{v.wins}/{v.count}</span>
+    </span>
+  )
+}
+
+// 4 comparison groups
+const GROUPS = [
+  { label: '涨幅榜-空', filtered: '涨幅榜-空（有过滤）', unfiltered: '涨幅榜-空（无过滤）' },
+  { label: '涨幅榜-多', filtered: '涨幅榜-多（有过滤）', unfiltered: '涨幅榜-多（无过滤）' },
+  { label: '跌幅榜-空', filtered: '跌幅榜-空（有过滤）', unfiltered: '跌幅榜-空（无过滤）' },
+  { label: '跌幅榜-多', filtered: '跌幅榜-多（有过滤）', unfiltered: '跌幅榜-多（无过滤）' },
 ]
 
-const SHORT_LABELS = {
-  '涨幅榜-空（有过滤）': '涨幅空（有过滤）',
-  '涨幅榜-空（无过滤）': '涨幅空（无过滤）',
-  '涨幅榜-多（有过滤）': '涨幅多（有过滤）',
-  '涨幅榜-多（无过滤）': '涨幅多（无过滤）',
-  '跌幅榜-空（有过滤）': '跌幅空（有过滤）',
-  '跌幅榜-空（无过滤）': '跌幅空（无过滤）',
-  '跌幅榜-多（有过滤）': '跌幅多（有过滤）',
-  '跌幅榜-多（无过滤）': '跌幅多（无过滤）',
-}
+const ALL_SIDES = GROUPS.flatMap(g => [g.filtered, g.unfiltered])
 
 export default function DailySummary() {
   const [loading, setLoading] = useState(true)
@@ -42,7 +45,6 @@ export default function DailySummary() {
     }).finally(() => setLoading(false))
   }, [])
 
-  // Build daily summary from closed records
   const buildSummary = (data, sides) => {
     const closed = data.filter(r => r.close_time)
     const dateMap = {}
@@ -60,113 +62,65 @@ export default function DailySummary() {
     return dateMap
   }
 
-  // Real: only 2 sides
+  // Real
   const realSides = ['涨幅榜-空（有过滤）', '跌幅榜-空（有过滤）']
   const realSummary = buildSummary(realData, realSides)
-  const virtSummary = buildSummary(virtData, SIDES)
-
+  const virtSummary = buildSummary(virtData, ALL_SIDES)
   const allDates = [...new Set([...Object.keys(realSummary), ...Object.keys(virtSummary)])].sort().reverse()
 
-  // Virtual table columns
-  const virtColumns = [
-    {
-      title: '日期', dataIndex: 'date', key: 'date', width: 100, fixed: 'left',
-      render: v => <b>{v?.slice(5)}</b>,
-    },
-    ...SIDES.map(side => ({
-      title: SHORT_LABELS[side],
-      dataIndex: side,
-      key: side,
-      width: 110,
-      render: v => {
-        if (!v) return <span style={{ color: '#ccc' }}>-</span>
-        return (
-          <span style={{ color: pnlColor(v.pnl), fontWeight: 500 }}>
-            {v.pnl >= 0 ? '+' : ''}{v.pnl.toFixed(1)}
-            <br />
-            <span style={{ color: '#999', fontWeight: 400, fontSize: 11 }}>{v.wins}/{v.count}</span>
-          </span>
-        )
-      },
-    })),
-    {
-      title: '合计', dataIndex: 'total', key: 'total', width: 80,
-      render: v => {
-        if (v == null) return '-'
-        return <b style={{ color: pnlColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(1)}</b>
-      },
-    },
-  ]
-
-  const virtRows = allDates.map(date => {
-    const row = { key: date, date }
-    let total = 0
-    let hasData = false
-    for (const side of SIDES) {
-      const d = virtSummary[date]?.[side]
-      row[side] = d || null
-      if (d) { total += d.pnl; hasData = true }
-    }
-    row.total = hasData ? total : null
-    return row
-  }).filter(r => SIDES.some(s => r[s]))
-
-  // Real table columns
+  // Real table
   const realColumns = [
-    {
-      title: '日期', dataIndex: 'date', key: 'date', width: 100, fixed: 'left',
-      render: v => <b>{v?.slice(5)}</b>,
-    },
+    { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b>{v?.slice(5)}</b> },
     ...realSides.map(side => ({
-      title: SHORT_LABELS[side],
-      dataIndex: side,
-      key: side,
-      width: 100,
-      render: v => {
-        if (!v) return <span style={{ color: '#ccc' }}>-</span>
-        return (
-          <span style={{ color: pnlColor(v.pnl), fontWeight: 500 }}>
-            {v.pnl >= 0 ? '+' : ''}{v.pnl.toFixed(2)} U
-            <br />
-            <span style={{ color: '#999', fontWeight: 400, fontSize: 11 }}>{v.wins}/{v.count}</span>
-          </span>
-        )
-      },
+      title: side.includes('涨幅') ? '涨幅空（有过滤）' : '跌幅空（有过滤）',
+      dataIndex: side, key: side, width: 110,
+      render: v => <PnlCell v={v} decimal={2} />,
     })),
     {
       title: '合计', dataIndex: 'total', key: 'total', width: 90,
-      render: v => {
-        if (v == null) return '-'
-        return <b style={{ color: pnlColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(2)} U</b>
-      },
+      render: v => v == null ? '-' : <b style={{ color: pnlColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(2)} U</b>,
     },
   ]
-
   const realRows = allDates.map(date => {
     const row = { key: date, date }
-    let total = 0
-    let hasData = false
-    for (const side of realSides) {
-      const d = realSummary[date]?.[side]
-      row[side] = d || null
+    let total = 0, hasData = false
+    for (const s of realSides) {
+      const d = realSummary[date]?.[s]
+      row[s] = d || null
       if (d) { total += d.pnl; hasData = true }
     }
     row.total = hasData ? total : null
     return row
   }).filter(r => realSides.some(s => r[s]))
 
-  // Totals for stats cards
-  const virtTotals = {}
-  for (const side of SIDES) {
-    virtTotals[side] = virtRows.reduce((acc, r) => acc + (r[side]?.pnl || 0), 0)
-  }
   const realTotals = {}
-  for (const side of realSides) {
-    realTotals[side] = realRows.reduce((acc, r) => acc + (r[side]?.pnl || 0), 0)
+  for (const s of realSides) realTotals[s] = realRows.reduce((acc, r) => acc + (r[s]?.pnl || 0), 0)
+
+  // Virtual: build rows per group
+  const buildGroupRows = (group) => {
+    const { filtered, unfiltered } = group
+    return allDates.map(date => {
+      const f = virtSummary[date]?.[filtered]
+      const u = virtSummary[date]?.[unfiltered]
+      if (!f && !u) return null
+      const diff = (f?.pnl || 0) - (u?.pnl || 0)
+      return { key: date, date, filtered: f, unfiltered: u, diff: (f || u) ? diff : null }
+    }).filter(Boolean)
   }
+
+  const groupColumns = [
+    { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b>{v?.slice(5)}</b> },
+    { title: '有过滤', dataIndex: 'filtered', key: 'filtered', width: 100, render: v => <PnlCell v={v} /> },
+    { title: '无过滤', dataIndex: 'unfiltered', key: 'unfiltered', width: 100, render: v => <PnlCell v={v} /> },
+    {
+      title: '差值', dataIndex: 'diff', key: 'diff', width: 80,
+      render: v => v == null ? '-' : <b style={{ color: pnlColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(1)}</b>,
+    },
+  ]
 
   return (
     <Spin spinning={loading}>
+      {/* 实盘 */}
       <Card size="small" title="实盘每日汇总" style={{ marginBottom: 16 }}>
         <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
           {realSides.map(s => {
@@ -174,7 +128,8 @@ export default function DailySummary() {
             return (
               <Col xs={12} sm={8} md={6} key={s}>
                 <Card size="small">
-                  <Statistic title={SHORT_LABELS[s]} value={Math.abs(pnl).toFixed(2)} suffix="U"
+                  <Statistic title={s.includes('涨幅') ? '涨幅空（有过滤）' : '跌幅空（有过滤）'}
+                    value={Math.abs(pnl).toFixed(2)} suffix="U"
                     prefix={pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
                     valueStyle={{ color: pnlColor(pnl), fontSize: 16 }} />
                 </Card>
@@ -186,24 +141,32 @@ export default function DailySummary() {
           pagination={false} scroll={{ x: 'max-content' }} size="small" />
       </Card>
 
-      <Card size="small" title="虚拟盘每日汇总">
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-          {SIDES.map(s => {
-            const pnl = virtTotals[s] || 0
-            return (
-              <Col xs={12} sm={8} md={6} lg={3} key={s}>
-                <Card size="small">
-                  <Statistic title={SHORT_LABELS[s]} value={Math.abs(pnl).toFixed(1)} suffix="U"
-                    prefix={pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                    valueStyle={{ color: pnlColor(pnl), fontSize: 14 }} />
-                </Card>
-              </Col>
-            )
-          })}
-        </Row>
-        <Table columns={virtColumns} dataSource={virtRows}
-          pagination={false} scroll={{ x: 'max-content' }} size="small" />
-      </Card>
+      {/* 虚拟盘 4 组对比 */}
+      <Row gutter={[12, 12]}>
+        {GROUPS.map(group => {
+          const rows = buildGroupRows(group)
+          const fTotal = rows.reduce((acc, r) => acc + (r.filtered?.pnl || 0), 0)
+          const uTotal = rows.reduce((acc, r) => acc + (r.unfiltered?.pnl || 0), 0)
+          const diff = fTotal - uTotal
+          return (
+            <Col xs={24} lg={12} key={group.label}>
+              <Card size="small"
+                title={group.label}
+                extra={
+                  <span style={{ fontSize: 13 }}>
+                    有过滤 <b style={{ color: pnlColor(fTotal) }}>{fTotal >= 0 ? '+' : ''}{fTotal.toFixed(1)}</b>
+                    {' / '}无过滤 <b style={{ color: pnlColor(uTotal) }}>{uTotal >= 0 ? '+' : ''}{uTotal.toFixed(1)}</b>
+                    {' / '}差 <b style={{ color: pnlColor(diff) }}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</b>
+                  </span>
+                }
+                style={{ marginBottom: 12 }}>
+                <Table columns={groupColumns} dataSource={rows}
+                  pagination={false} scroll={{ x: 'max-content' }} size="small" />
+              </Card>
+            </Col>
+          )
+        })}
+      </Row>
     </Spin>
   )
 }
