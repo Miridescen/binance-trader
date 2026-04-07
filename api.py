@@ -31,6 +31,10 @@ def open_log():
 def virtual_log():
     return jsonify(_strip_id(db.get_virtual_log_all()))
 
+@app.route("/api/daily_summary")
+def daily_summary():
+    return jsonify(_strip_id(db.get_daily_summary_all()))
+
 @app.route("/api/positions_detail")
 def positions_detail():
     time_str = request.args.get("time")

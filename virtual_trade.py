@@ -92,6 +92,39 @@ def virtual_close():
 
     log.info(f"【虚拟平仓完成】共平仓 {closed} 笔")
 
+    # 写入虚拟盘每日汇总
+    _save_virtual_daily_summary(ts[:10])
+
+
+def _save_virtual_daily_summary(today: str):
+    """从 virtual_log 中统计今天平仓的虚拟盘每日汇总，写入 daily_summary"""
+    try:
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT side, unrealized_pnl FROM virtual_log WHERE close_time LIKE ?",
+                (f"{today}%",)
+            ).fetchall()
+        if not rows:
+            return
+        summary = {}
+        for r in rows:
+            side = r["side"]
+            pnl = r["unrealized_pnl"] or 0
+            if side not in summary:
+                summary[side] = {"count": 0, "wins": 0, "total_pnl": 0}
+            summary[side]["count"] += 1
+            summary[side]["total_pnl"] += pnl
+            if pnl > 0:
+                summary[side]["wins"] += 1
+        db_rows = [
+            {"date": today, "source": "虚拟盘", "side": side, **data}
+            for side, data in summary.items()
+        ]
+        db.insert_daily_summary(db_rows)
+        log.info(f"虚拟盘每日汇总已写入（{len(db_rows)} 组）")
+    except Exception as e:
+        log.warning(f"写入虚拟盘每日汇总失败：{e}")
+
 
 # ── 虚拟开仓 ───────────────────────────────────────────
 

@@ -135,6 +135,18 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_time ON virtual_detail(time);
 
+        -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
+        CREATE TABLE IF NOT EXISTS daily_summary (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT,
+            source      TEXT,
+            side        TEXT,
+            count       INTEGER,
+            wins        INTEGER,
+            total_pnl   REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_daily_summary_date ON daily_summary(date);
+
         -- 兼容升级：为已有表添加新字段（不存在时才加）
         """)
 
@@ -437,6 +449,23 @@ def backup_tables(suffix: str = "bak_0407"):
         # 重建空表
         init_db()
         print("  已重建空表")
+
+
+# ── daily_summary 操作 ─────────────────────────────────
+
+def insert_daily_summary(rows: list[dict]):
+    """批量插入每日汇总"""
+    with get_conn() as conn:
+        conn.executemany("""
+            INSERT INTO daily_summary (date, source, side, count, wins, total_pnl)
+            VALUES (:date, :source, :side, :count, :wins, :total_pnl)
+        """, rows)
+
+
+def get_daily_summary_all() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM daily_summary ORDER BY date DESC, source, side").fetchall()
+        return [dict(r) for r in rows]
 
 
 # 启动时自动建表
