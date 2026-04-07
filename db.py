@@ -424,7 +424,7 @@ def get_virtual_detail_times(date: str) -> list[str]:
 def backup_tables(suffix: str = "bak_0407"):
     """备份 open_log / virtual_log / virtual_detail 表，然后重建空表"""
     with get_conn() as conn:
-        for table in ("open_log", "virtual_log", "virtual_detail"):
+        for table in ("open_log", "virtual_log", "virtual_detail", "positions_log", "positions_detail"):
             bak = f"{table}_{suffix}"
             exists = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (bak,)
