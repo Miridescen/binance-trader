@@ -96,17 +96,16 @@ def realtime():
         pos_risk = auth_get("/fapi/v2/positionRisk")
         active_risk = [p for p in pos_risk if float(p["positionAmt"]) != 0]
 
-        # 从 open_log 获取今日开仓记录的 side 标记，用于区分涨幅空/跌幅空
-        today = __import__('datetime').datetime.now().strftime("%Y-%m-%d")
+        # 从 open_log 获取最近一条未平仓记录的 side 标记，用于区分涨幅空/跌幅空
         side_map = {}
         try:
             with db.get_conn() as conn:
                 rows = conn.execute(
-                    "SELECT symbol, side FROM open_log WHERE open_time LIKE ? AND close_time IS NULL",
-                    (f"{today}%",)
+                    "SELECT symbol, side FROM open_log WHERE close_time IS NULL ORDER BY id DESC"
                 ).fetchall()
                 for r in rows:
-                    side_map[r["symbol"]] = r["side"]
+                    if r["symbol"] not in side_map:
+                        side_map[r["symbol"]] = r["side"]
         except Exception:
             pass
 
