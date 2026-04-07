@@ -289,7 +289,6 @@ def run_limit_close():
         print_close_summary(active)
         save_close_summary_csv(active, datetime.now())
         save_close_log(active, datetime.now())
-        _save_real_daily_summary()
         # 日报推送
         try:
             balance = next(
@@ -385,6 +384,7 @@ def run_market_close(remaining: dict, close_start_ms: int = 0):
     except Exception as e:
         log.warning(f"获取平仓手续费失败：{e}")
 
+    _save_real_daily_summary()
     log.info("【平仓全部完成】")
 
 
