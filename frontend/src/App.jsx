@@ -8,6 +8,7 @@ import OpenLog from './pages/OpenLog'
 import VirtualLog from './pages/VirtualLog'
 import VirtualDetail from './pages/VirtualDetail'
 import PositionsDetail from './pages/PositionsDetail'
+import DailySummary from './pages/DailySummary'
 import 'antd/dist/reset.css'
 import './App.css'
 
@@ -20,6 +21,7 @@ const menuItems = [
   { key: '/positions',         icon: <FundOutlined />,           label: '持仓监控' },
   { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
   { key: '/positions-detail',  icon: <BarChartOutlined />,       label: '持仓明细' },
+  { key: '/daily-summary',     icon: <BarChartOutlined />,       label: '每日汇总' },
   { key: '/virtuallog',        icon: <ExperimentOutlined />,     label: '模拟盘' },
   { key: '/virtual-detail',    icon: <LineChartOutlined />,      label: '模拟盘明细' },
 ]
@@ -99,6 +101,7 @@ export default function App() {
           <Route path="/"           element={<Dashboard />} />
           <Route path="/positions"   element={<Positions />} />
           <Route path="/openlog"    element={<OpenLog />} />
+          <Route path="/daily-summary"     element={<DailySummary />} />
           <Route path="/virtuallog"        element={<VirtualLog />} />
           <Route path="/virtual-detail"   element={<VirtualDetail />} />
           <Route path="/positions-detail" element={<PositionsDetail />} />
