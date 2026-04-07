@@ -17,14 +17,14 @@ const SIDES = [
 ]
 
 const SHORT_LABELS = {
-  '涨幅榜-空（有过滤）': '涨空✓',
-  '涨幅榜-空（无过滤）': '涨空✗',
-  '涨幅榜-多（有过滤）': '涨多✓',
-  '涨幅榜-多（无过滤）': '涨多✗',
-  '跌幅榜-空（有过滤）': '跌空✓',
-  '跌幅榜-空（无过滤）': '跌空✗',
-  '跌幅榜-多（有过滤）': '跌多✓',
-  '跌幅榜-多（无过滤）': '跌多✗',
+  '涨幅榜-空（有过滤）': '涨幅空（有过滤）',
+  '涨幅榜-空（无过滤）': '涨幅空（无过滤）',
+  '涨幅榜-多（有过滤）': '涨幅多（有过滤）',
+  '涨幅榜-多（无过滤）': '涨幅多（无过滤）',
+  '跌幅榜-空（有过滤）': '跌幅空（有过滤）',
+  '跌幅榜-空（无过滤）': '跌幅空（无过滤）',
+  '跌幅榜-多（有过滤）': '跌幅多（有过滤）',
+  '跌幅榜-多（无过滤）': '跌幅多（无过滤）',
 }
 
 export default function DailySummary() {
@@ -77,7 +77,7 @@ export default function DailySummary() {
       title: SHORT_LABELS[side],
       dataIndex: side,
       key: side,
-      width: 80,
+      width: 110,
       render: v => {
         if (!v) return <span style={{ color: '#ccc' }}>-</span>
         return (
@@ -186,7 +186,7 @@ export default function DailySummary() {
           pagination={false} scroll={{ x: 'max-content' }} size="small" />
       </Card>
 
-      <Card size="small" title="虚拟盘每日汇总（✓=有过滤 ✗=无过滤）">
+      <Card size="small" title="虚拟盘每日汇总">
         <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
           {SIDES.map(s => {
             const pnl = virtTotals[s] || 0
