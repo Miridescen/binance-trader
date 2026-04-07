@@ -23,7 +23,7 @@ function RoeCell({ value }) {
 
 const columns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110, filters: [], onFilter: (v, r) => r.symbol === v },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 60, render: v => <Tag color={v === '空' ? 'green' : 'red'}>{v}</Tag> },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 140, render: v => <Tag color={v?.includes('空') ? 'green' : 'red'}>{v}</Tag> },
   { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '持仓量', dataIndex: 'position_amt', key: 'position_amt', width: 80, render: v => v ? parseFloat(v) : '-' },

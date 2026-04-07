@@ -68,7 +68,7 @@ def calc_stats(positions: list) -> dict:
 
 # ── 表格打印 ───────────────────────────────────────────
 
-COL = {"symbol": 14, "side": 4, "amt": 10, "entry": 10, "mark": 10, "pnl": 11, "roe": 8, "lev": 5}
+COL = {"symbol": 14, "side": 16, "amt": 10, "entry": 10, "mark": 10, "pnl": 11, "roe": 8, "lev": 5}
 
 def sep(char="-"):
     print(char * (sum(COL.values()) + len(COL) * 3 + 1))
@@ -138,6 +138,20 @@ def save_csv(positions: list, balance: float, now: datetime, funding_fee: float 
 def save_detail_csv(positions: list, now: datetime):
     """每小时写入每个仓位的详细盈亏到数据库"""
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 从 open_log 获取 side 标记
+    side_map = {}
+    try:
+        with db.get_conn() as conn:
+            r = conn.execute(
+                "SELECT symbol, side FROM open_log WHERE close_time IS NULL ORDER BY id DESC"
+            ).fetchall()
+            for row in r:
+                if row["symbol"] not in side_map:
+                    side_map[row["symbol"]] = row["side"]
+    except Exception:
+        pass
+
     rows = []
     for p in positions:
         amt      = float(p["positionAmt"])
@@ -147,10 +161,12 @@ def save_detail_csv(positions: list, now: datetime):
         leverage = int(p["leverage"])
         margin   = entry * abs(amt) / leverage if leverage and entry else 0
         roe      = pnl / margin * 100 if margin else 0
+        sym      = p["symbol"]
+        side     = side_map.get(sym, "涨幅榜-空（有过滤）" if amt < 0 else "多")
         rows.append({
             "time":            ts,
-            "symbol":          p["symbol"],
-            "side":            "多" if amt > 0 else "空",
+            "symbol":          sym,
+            "side":            side,
             "entry_price":     entry,
             "mark_price":      mark,
             "position_amt":    abs(amt),
