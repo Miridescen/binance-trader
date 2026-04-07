@@ -652,8 +652,6 @@ def run_open():
     def has_mcap(t):
         return bool(market_data.get(t["symbol"], {}).get("market_cap"))
 
-    top_gainers = []
-    top_losers  = []
     if market_data:
         top_gainers = [t for t in gainer_pool
                        if has_mcap(t) and float(t["priceChangePercent"]) >= MIN_CHANGE_SHORT
@@ -667,15 +665,10 @@ def run_open():
             detail = f"跳过无市值币 {len(skipped)} 个: {skipped}"
             log.info(detail)
             log_event("FILTER_NO_MCAP", detail)
-
-    # 市值数据缺失或过滤后为空，fallback 到不过滤市值
-    if not top_gainers:
-        log.warning("涨幅榜市值过滤后为空，跳过市值过滤")
+    else:
         top_gainers = [t for t in gainer_pool
                        if float(t["priceChangePercent"]) >= MIN_CHANGE_SHORT][:TOP_N_SHORT]
-    if not top_losers:
-        log.warning("跌幅榜市值过滤后为空，跳过市值过滤")
-        top_losers = [t for t in loser_pool
+        top_losers  = [t for t in loser_pool
                        if float(t["priceChangePercent"]) <= -MIN_CHANGE_LONG][:TOP_N_LOSER_SHORT]
 
     log.info(f"涨幅榜空单候选：{len(top_gainers)} 个（涨幅 ≥{MIN_CHANGE_SHORT}%，上限 {TOP_N_SHORT}）")
