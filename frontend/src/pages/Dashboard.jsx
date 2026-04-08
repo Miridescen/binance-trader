@@ -23,7 +23,12 @@ function RoeCell({ value }) {
 
 const realColumns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110 },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 140, render: v => <Tag color={v?.includes('空') ? 'green' : 'red'}>{v}</Tag> },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 140, render: v => {
+    let color = 'default'
+    if (v?.includes('涨幅') && v?.includes('空')) color = 'green'
+    else if (v?.includes('跌幅') && v?.includes('空')) color = 'cyan'
+    return <Tag color={color}>{v}</Tag>
+  }},
   { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
   { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 90, render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },

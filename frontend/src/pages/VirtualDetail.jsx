@@ -38,7 +38,14 @@ const GROUPS = [
 const columns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110, filters: [], onFilter: (v, r) => r.symbol === v },
   { title: '方向', dataIndex: 'side', key: 'side', width: 140,
-    render: v => <Tag color={v?.includes('空') ? 'green' : 'red'}>{v}</Tag>,
+    render: v => {
+      let color = 'default'
+      if (v?.includes('涨幅') && v?.includes('空')) color = 'green'
+      else if (v?.includes('涨幅') && v?.includes('多')) color = 'red'
+      else if (v?.includes('跌幅') && v?.includes('空')) color = 'cyan'
+      else if (v?.includes('跌幅') && v?.includes('多')) color = 'orange'
+      return <Tag color={color}>{v}</Tag>
+    },
     filters: SIDES.map(s => ({ text: s, value: s })),
     onFilter: (v, r) => r.side === v },
   { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },

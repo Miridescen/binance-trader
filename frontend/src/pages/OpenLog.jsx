@@ -65,7 +65,9 @@ const columns = [
     key: 'side',
     width: 140,
     render: v => {
-      const color = v?.includes('空') ? 'green' : v?.includes('多') ? 'red' : 'default'
+      let color = 'default'
+      if (v?.includes('涨幅') && v?.includes('空')) color = 'green'
+      else if (v?.includes('跌幅') && v?.includes('空')) color = 'cyan'
       return <Tag color={color}>{v}</Tag>
     },
     filters: [
