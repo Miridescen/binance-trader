@@ -30,12 +30,6 @@ function RoeCell({ value }) {
   )
 }
 
-const reasonColor = {
-  '止盈': 'green',
-  '止损': 'red',
-  '定时平仓': 'blue',
-}
-
 const columns = [
   {
     title: '开仓时间',
@@ -100,19 +94,6 @@ const columns = [
     },
   },
   {
-    title: '资金费率',
-    dataIndex: 'symbol_funding_rate',
-    key: 'symbol_funding_rate',
-    width: 90,
-    render: v => {
-      const n = parseFloat(v)
-      if (isNaN(n)) return '-'
-      const pct = (n * 100).toFixed(4)
-      return <span style={{ color: n >= 0 ? '#cf1322' : '#3f8600' }}>{n >= 0 ? '+' : ''}{pct}%</span>
-    },
-    sorter: (a, b) => parseFloat(a.symbol_funding_rate || 0) - parseFloat(b.symbol_funding_rate || 0),
-  },
-  {
     title: '开仓价',
     dataIndex: 'entry_price',
     key: 'entry_price',
@@ -159,19 +140,6 @@ const columns = [
       if (isNaN(n)) return '-'
       return <span style={{ color: '#cf1322' }}>{n.toFixed(4)}</span>
     },
-  },
-  {
-    title: '平仓原因',
-    dataIndex: 'close_reason',
-    key: 'close_reason',
-    width: 100,
-    render: v => v ? <Tag color={reasonColor[v] || 'default'}>{v}</Tag> : '-',
-    filters: [
-      { text: '止盈', value: '止盈' },
-      { text: '止损', value: '止损' },
-      { text: '定时平仓', value: '定时平仓' },
-    ],
-    onFilter: (value, record) => record.close_reason === value,
   },
 ]
 
