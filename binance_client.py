@@ -177,6 +177,68 @@ def get_commissions_by_symbol(start_ms: int, end_ms: int) -> dict:
     return result
 
 
+# ── BTC 趋势指标 ─────────────────────────────────────────
+
+def get_klines(symbol: str, interval: str, limit: int = 200) -> list:
+    """获取 K 线数据，返回 [{open_time, open, high, low, close, volume}, ...]"""
+    data = public_get("/fapi/v1/klines", {
+        "symbol": symbol, "interval": interval, "limit": limit,
+    })
+    return [
+        {
+            "open_time": item[0],
+            "open": float(item[1]),
+            "high": float(item[2]),
+            "low": float(item[3]),
+            "close": float(item[4]),
+            "volume": float(item[5]),
+        }
+        for item in data
+    ]
+
+
+def calc_sma(closes: list, period: int) -> float:
+    """计算简单移动平均线"""
+    if len(closes) < period:
+        return None
+    return sum(closes[-period:]) / period
+
+
+def calc_rsi(closes: list, period: int = 14) -> float:
+    """计算 RSI"""
+    if len(closes) < period + 1:
+        return None
+    gains = []
+    losses = []
+    for i in range(-period, 0):
+        diff = closes[i] - closes[i - 1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100
+    rs = avg_gain / avg_loss
+    return 100 - 100 / (1 + rs)
+
+
+def get_fear_greed_index() -> dict:
+    """获取恐惧贪婪指数（Alternative.me 免费 API）"""
+    resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10)
+    resp.raise_for_status()
+    item = resp.json()["data"][0]
+    return {
+        "value": int(item["value"]),
+        "label": item["value_classification"],
+    }
+
+
+def get_funding_rate(symbol: str = "BTCUSDT") -> float:
+    """获取单个合约的当前资金费率"""
+    data = public_get("/fapi/v1/premiumIndex", {"symbol": symbol})
+    return float(data["lastFundingRate"])
+
+
 # ── CoinGecko 行情补充 ─────────────────────────────────
 
 COINGECKO_URL = "https://api.coingecko.com/api/v3"

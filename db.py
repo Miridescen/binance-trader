@@ -147,6 +147,33 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_daily_summary_date ON daily_summary(date);
 
+        -- BTC 趋势指标记录
+        CREATE TABLE IF NOT EXISTS btc_indicator (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            time        TEXT,
+            price       REAL,
+            sma200      REAL,
+            rsi_weekly  REAL,
+            funding_rate REAL,
+            fear_greed  INTEGER,
+            fear_greed_label TEXT,
+            signal      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_btc_indicator_time ON btc_indicator(time);
+
+        -- BTC 趋势信号交易记录
+        CREATE TABLE IF NOT EXISTS btc_signal_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_time   TEXT,
+            close_time  TEXT,
+            side        TEXT,
+            entry_price REAL,
+            close_price REAL,
+            signal_reason TEXT,
+            unrealized_pnl REAL,
+            roe_pct     REAL
+        );
+
         -- 兼容升级：为已有表添加新字段（不存在时才加）
         """)
 
@@ -465,6 +492,65 @@ def insert_daily_summary(rows: list[dict]):
 def get_daily_summary_all() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM daily_summary ORDER BY date DESC, source, side").fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── btc_indicator 操作 ─────────────────────────────────
+
+def insert_btc_indicator(row: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO btc_indicator (time, price, sma200, rsi_weekly, funding_rate,
+                                       fear_greed, fear_greed_label, signal)
+            VALUES (:time, :price, :sma200, :rsi_weekly, :funding_rate,
+                    :fear_greed, :fear_greed_label, :signal)
+        """, row)
+
+
+def get_btc_indicators(limit: int = 200) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM btc_indicator ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── btc_signal_log 操作 ───────────────────────────────
+
+def insert_btc_signal(row: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO btc_signal_log (open_time, close_time, side, entry_price,
+                                        close_price, signal_reason, unrealized_pnl, roe_pct)
+            VALUES (:open_time, :close_time, :side, :entry_price,
+                    :close_price, :signal_reason, :unrealized_pnl, :roe_pct)
+        """, row)
+
+
+def get_btc_signal_unclosed() -> dict:
+    """获取当前未平仓的 BTC 信号单，没有则返回 None"""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM btc_signal_log WHERE close_time IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_btc_signal_close(row_id: int, close_data: dict):
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE btc_signal_log SET
+                close_time = :close_time,
+                close_price = :close_price,
+                unrealized_pnl = :unrealized_pnl,
+                roe_pct = :roe_pct
+            WHERE id = :id
+        """, {**close_data, "id": row_id})
+
+
+def get_btc_signal_log_all() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM btc_signal_log ORDER BY id DESC").fetchall()
         return [dict(r) for r in rows]
 
 

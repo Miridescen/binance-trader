@@ -35,6 +35,14 @@ def virtual_log():
 def daily_summary():
     return jsonify(_strip_id(db.get_daily_summary_all()))
 
+@app.route("/api/btc_indicators")
+def btc_indicators():
+    return jsonify(_strip_id(db.get_btc_indicators(500)))
+
+@app.route("/api/btc_signals")
+def btc_signals():
+    return jsonify(_strip_id(db.get_btc_signal_log_all()))
+
 @app.route("/api/positions_detail")
 def positions_detail():
     time_str = request.args.get("time")
