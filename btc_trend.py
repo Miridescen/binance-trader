@@ -14,7 +14,7 @@ import time
 import logging
 from datetime import datetime
 from binance_client import (
-    get_klines, get_mark_price, calc_sma, calc_rsi,
+    get_klines, get_mark_price, calc_sma, calc_ema, calc_rsi, calc_macd,
     get_fear_greed_index, get_funding_rate,
 )
 import db
@@ -34,16 +34,19 @@ CHECK_INTERVAL = 3600  # 每小时检查一次
 
 def collect_indicators() -> dict:
     """采集所有指标，返回指标字典"""
-    # 日线 K 线 → 200 日均线
+    # 日线 K 线 → SMA200 / EMA50 / EMA200
     daily_klines = get_klines(SYMBOL, "1d", 210)
     daily_closes = [k["close"] for k in daily_klines]
     sma200 = calc_sma(daily_closes, 200)
-    price = daily_closes[-1] if daily_closes else get_mark_price(SYMBOL)
+    ema50  = calc_ema(daily_closes, 50)
+    ema200 = calc_ema(daily_closes, 200)
+    price  = daily_closes[-1] if daily_closes else get_mark_price(SYMBOL)
 
-    # 周线 K 线 → RSI(14)
-    weekly_klines = get_klines(SYMBOL, "1w", 20)
+    # 周线 K 线 → RSI(14) / MACD
+    weekly_klines = get_klines(SYMBOL, "1w", 40)
     weekly_closes = [k["close"] for k in weekly_klines]
     rsi_weekly = calc_rsi(weekly_closes, 14)
+    macd_data  = calc_macd(weekly_closes)
 
     # 资金费率
     try:
@@ -62,37 +65,87 @@ def collect_indicators() -> dict:
     return {
         "price": price,
         "sma200": sma200,
+        "ema50": ema50,
+        "ema200": ema200,
         "rsi_weekly": rsi_weekly,
+        "macd": macd_data["macd"],
+        "macd_signal": macd_data["signal"],
+        "macd_histogram": macd_data["histogram"],
         "funding_rate": funding,
         "fear_greed": fng["value"],
         "fear_greed_label": fng["label"],
     }
 
 
-def judge_signal(indicators: dict) -> str:
+def judge_signal(indicators: dict) -> tuple:
     """
     根据指标判断信号：多 / 空 / 观望
-    规则：
-      - 价格 > 200日均线 且 周线RSI > 50 → 多
-      - 价格 < 200日均线 且 周线RSI < 50 → 空
-      - 其他 → 观望（不开仓）
+    采用投票机制，3 个维度各投一票：
+
+    1. 趋势（SMA200）：价格 > SMA200 → 多票，< SMA200 → 空票
+    2. 动量（周线RSI）：RSI > 50 → 多票，< 50 → 空票
+    3. EMA交叉 + MACD 共同确认：
+       EMA50 > EMA200 且 MACD柱 > 0 → 多票
+       EMA50 < EMA200 且 MACD柱 < 0 → 空票
+
+    3票同方向 → 强信号开仓
+    2票同方向 → 弱信号开仓
+    其他 → 观望
+
+    返回: (signal, reason)
     """
-    price = indicators["price"]
+    price  = indicators["price"]
     sma200 = indicators["sma200"]
-    rsi = indicators["rsi_weekly"]
+    ema50  = indicators["ema50"]
+    ema200 = indicators["ema200"]
+    rsi    = indicators["rsi_weekly"]
+    macd_h = indicators["macd_histogram"]
 
+    # 指标不足时观望
     if sma200 is None or rsi is None:
-        return "观望"
+        return "观望", "指标数据不足"
 
-    if price > sma200 and rsi > 50:
-        return "多"
-    elif price < sma200 and rsi < 50:
-        return "空"
+    # 投票
+    votes = {"多": 0, "空": 0}
+    reasons = []
+
+    # 1. SMA200 趋势
+    if price > sma200:
+        votes["多"] += 1
+        reasons.append("价格>SMA200")
     else:
-        return "观望"
+        votes["空"] += 1
+        reasons.append("价格<SMA200")
+
+    # 2. 周线 RSI
+    if rsi > 50:
+        votes["多"] += 1
+        reasons.append(f"RSI{rsi:.0f}>50")
+    else:
+        votes["空"] += 1
+        reasons.append(f"RSI{rsi:.0f}<50")
+
+    # 3. EMA交叉 + MACD 共同确认
+    if ema50 is not None and ema200 is not None and macd_h is not None:
+        if ema50 > ema200 and macd_h > 0:
+            votes["多"] += 1
+            reasons.append("EMA金叉+MACD多")
+        elif ema50 < ema200 and macd_h < 0:
+            votes["空"] += 1
+            reasons.append("EMA死叉+MACD空")
+        else:
+            reasons.append("EMA/MACD矛盾")
+
+    # 判定
+    if votes["多"] >= 2:
+        return "多", " + ".join(reasons)
+    elif votes["空"] >= 2:
+        return "空", " + ".join(reasons)
+    else:
+        return "观望", " + ".join(reasons)
 
 
-def handle_signal(signal: str, price: float):
+def handle_signal(signal: str, reason: str, price: float):
     """根据信号处理虚拟开平仓"""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     current = db.get_btc_signal_unclosed()
@@ -133,7 +186,7 @@ def handle_signal(signal: str, price: float):
             "side": signal,
             "entry_price": price,
             "close_price": None,
-            "signal_reason": f"SMA200={'上方' if signal == '多' else '下方'} + RSI{'偏多' if signal == '多' else '偏空'}",
+            "signal_reason": reason,
             "unrealized_pnl": None,
             "roe_pct": None,
         })
@@ -146,7 +199,7 @@ def run_check():
     log.info(f"── BTC 趋势信号检查 ──")
 
     indicators = collect_indicators()
-    signal = judge_signal(indicators)
+    signal, reason = judge_signal(indicators)
 
     # 记录指标
     db.insert_btc_indicator({
@@ -155,23 +208,28 @@ def run_check():
         "signal": signal,
     })
 
-    price = indicators["price"]
+    price  = indicators["price"]
     sma200 = indicators["sma200"]
-    rsi = indicators["rsi_weekly"]
-    fng = indicators["fear_greed"]
-    fr = indicators["funding_rate"]
+    ema50  = indicators["ema50"]
+    ema200 = indicators["ema200"]
+    rsi    = indicators["rsi_weekly"]
+    macd_h = indicators["macd_histogram"]
+    fng    = indicators["fear_greed"]
+    fr     = indicators["funding_rate"]
 
-    sma_str = f"{sma200:.2f}" if sma200 else "N/A"
-    rsi_str = f"{rsi:.1f}" if rsi else "N/A"
-    fr_str = f"{fr*100:.4f}%" if fr else "N/A"
+    sma_str  = f"{sma200:.2f}" if sma200 else "N/A"
+    ema_str  = f"EMA50 {ema50:.2f} / EMA200 {ema200:.2f}" if ema50 and ema200 else "N/A"
+    rsi_str  = f"{rsi:.1f}" if rsi else "N/A"
+    macd_str = f"{macd_h:+.2f}" if macd_h is not None else "N/A"
+    fr_str   = f"{fr*100:.4f}%" if fr else "N/A"
 
-    log.info(f"  价格 {price:.2f}  SMA200 {sma_str}  RSI周 {rsi_str}")
-    log.info(f"  资金费率 {fr_str}  恐惧贪婪 {fng}")
-    log.info(f"  信号：{signal}")
+    log.info(f"  价格 {price:.2f}  SMA200 {sma_str}  {ema_str}")
+    log.info(f"  RSI周 {rsi_str}  MACD柱 {macd_str}  资金费率 {fr_str}  恐惧贪婪 {fng}")
+    log.info(f"  信号：{signal}（{reason}）")
 
     # 处理开平仓
     mark = get_mark_price(SYMBOL)
-    handle_signal(signal, mark)
+    handle_signal(signal, reason, mark)
 
     # 更新未平仓的浮盈
     current = db.get_btc_signal_unclosed()

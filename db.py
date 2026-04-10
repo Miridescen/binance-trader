@@ -153,7 +153,12 @@ def init_db():
             time        TEXT,
             price       REAL,
             sma200      REAL,
+            ema50       REAL,
+            ema200      REAL,
             rsi_weekly  REAL,
+            macd        REAL,
+            macd_signal REAL,
+            macd_histogram REAL,
             funding_rate REAL,
             fear_greed  INTEGER,
             fear_greed_label TEXT,
@@ -500,10 +505,12 @@ def get_daily_summary_all() -> list[dict]:
 def insert_btc_indicator(row: dict):
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO btc_indicator (time, price, sma200, rsi_weekly, funding_rate,
-                                       fear_greed, fear_greed_label, signal)
-            VALUES (:time, :price, :sma200, :rsi_weekly, :funding_rate,
-                    :fear_greed, :fear_greed_label, :signal)
+            INSERT INTO btc_indicator (time, price, sma200, ema50, ema200,
+                                       rsi_weekly, macd, macd_signal, macd_histogram,
+                                       funding_rate, fear_greed, fear_greed_label, signal)
+            VALUES (:time, :price, :sma200, :ema50, :ema200,
+                    :rsi_weekly, :macd, :macd_signal, :macd_histogram,
+                    :funding_rate, :fear_greed, :fear_greed_label, :signal)
         """, row)
 
 

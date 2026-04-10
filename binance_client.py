@@ -222,6 +222,63 @@ def calc_rsi(closes: list, period: int = 14) -> float:
     return 100 - 100 / (1 + rs)
 
 
+def calc_ema(closes: list, period: int) -> float:
+    """计算指数移动平均线"""
+    if len(closes) < period:
+        return None
+    multiplier = 2 / (period + 1)
+    ema = sum(closes[:period]) / period  # 用前 period 个的 SMA 做种子
+    for price in closes[period:]:
+        ema = (price - ema) * multiplier + ema
+    return ema
+
+
+def calc_ema_series(closes: list, period: int) -> list:
+    """计算 EMA 序列（返回与 closes 等长的列表，前 period-1 个为 None）"""
+    if len(closes) < period:
+        return [None] * len(closes)
+    result = [None] * (period - 1)
+    ema = sum(closes[:period]) / period
+    result.append(ema)
+    multiplier = 2 / (period + 1)
+    for price in closes[period:]:
+        ema = (price - ema) * multiplier + ema
+        result.append(ema)
+    return result
+
+
+def calc_macd(closes: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
+    """
+    计算 MACD 指标
+    返回: {macd: float, signal: float, histogram: float} 最新值
+    """
+    if len(closes) < slow + signal:
+        return {"macd": None, "signal": None, "histogram": None}
+
+    ema_fast = calc_ema_series(closes, fast)
+    ema_slow = calc_ema_series(closes, slow)
+
+    # DIF = EMA_fast - EMA_slow
+    dif_series = []
+    for f, s in zip(ema_fast, ema_slow):
+        if f is not None and s is not None:
+            dif_series.append(f - s)
+
+    if len(dif_series) < signal:
+        return {"macd": None, "signal": None, "histogram": None}
+
+    # DEA = EMA(DIF, signal)
+    dea = sum(dif_series[:signal]) / signal
+    multiplier = 2 / (signal + 1)
+    for d in dif_series[signal:]:
+        dea = (d - dea) * multiplier + dea
+
+    macd_val = dif_series[-1]
+    histogram = (macd_val - dea) * 2
+
+    return {"macd": round(macd_val, 4), "signal": round(dea, 4), "histogram": round(histogram, 4)}
+
+
 def get_fear_greed_index() -> dict:
     """获取恐惧贪婪指数（Alternative.me 免费 API）"""
     resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10)

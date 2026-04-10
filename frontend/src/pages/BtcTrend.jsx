@@ -16,16 +16,32 @@ const indicatorColumns = [
   { title: 'BTC价格', dataIndex: 'price', key: 'price', width: 100, render: v => v ? parseFloat(v).toFixed(2) : '-' },
   { title: 'SMA200', dataIndex: 'sma200', key: 'sma200', width: 100, render: v => v ? parseFloat(v).toFixed(2) : '-' },
   {
-    title: '价格/SMA200', key: 'price_vs_sma', width: 90,
+    title: '价格/SMA', key: 'price_vs_sma', width: 80,
     render: (_, r) => {
       if (!r.price || !r.sma200) return '-'
       const above = parseFloat(r.price) > parseFloat(r.sma200)
       return <Tag color={above ? 'red' : 'green'}>{above ? '上方' : '下方'}</Tag>
     },
   },
-  { title: 'RSI周', dataIndex: 'rsi_weekly', key: 'rsi_weekly', width: 80, render: v => v ? parseFloat(v).toFixed(1) : '-' },
   {
-    title: '资金费率', dataIndex: 'funding_rate', key: 'funding_rate', width: 100,
+    title: 'EMA交叉', key: 'ema_cross', width: 80,
+    render: (_, r) => {
+      if (!r.ema50 || !r.ema200) return '-'
+      const golden = parseFloat(r.ema50) > parseFloat(r.ema200)
+      return <Tag color={golden ? 'red' : 'green'}>{golden ? '金叉' : '死叉'}</Tag>
+    },
+  },
+  { title: 'RSI周', dataIndex: 'rsi_weekly', key: 'rsi_weekly', width: 70, render: v => v ? parseFloat(v).toFixed(1) : '-' },
+  {
+    title: 'MACD柱', dataIndex: 'macd_histogram', key: 'macd_histogram', width: 80,
+    render: v => {
+      if (v == null) return '-'
+      const n = parseFloat(v)
+      return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>
+    },
+  },
+  {
+    title: '资金费率', dataIndex: 'funding_rate', key: 'funding_rate', width: 90,
     render: v => {
       if (v == null) return '-'
       const n = parseFloat(v)
@@ -33,12 +49,12 @@ const indicatorColumns = [
     },
   },
   {
-    title: '恐惧贪婪', key: 'fng', width: 100,
+    title: '恐惧贪婪', key: 'fng', width: 90,
     render: (_, r) => {
       const v = r.fear_greed
       if (v == null) return '-'
       const color = v <= 25 ? '#cf1322' : v <= 45 ? '#fa8c16' : v <= 55 ? '#999' : v <= 75 ? '#52c41a' : '#3f8600'
-      return <span style={{ color, fontWeight: 500 }}>{v} {r.fear_greed_label}</span>
+      return <span style={{ color, fontWeight: 500 }}>{v}</span>
     },
   },
   {
@@ -125,6 +141,20 @@ export default function BtcTrend() {
           <Card size="small">
             <Statistic title="RSI 周线" value={latest.rsi_weekly ? parseFloat(latest.rsi_weekly).toFixed(1) : '-'}
               valueStyle={{ color: parseFloat(latest.rsi_weekly) > 50 ? '#cf1322' : '#3f8600' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title="EMA交叉"
+              value={latest.ema50 && latest.ema200 ? (parseFloat(latest.ema50) > parseFloat(latest.ema200) ? '金叉' : '死叉') : '-'}
+              valueStyle={{ color: latest.ema50 && parseFloat(latest.ema50) > parseFloat(latest.ema200) ? '#cf1322' : '#3f8600' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title="MACD柱"
+              value={latest.macd_histogram != null ? parseFloat(latest.macd_histogram).toFixed(2) : '-'}
+              valueStyle={{ color: pnlColor(parseFloat(latest.macd_histogram)) }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={6}>
