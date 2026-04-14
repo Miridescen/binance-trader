@@ -83,6 +83,13 @@ const columns = [
     sorter: (a, b) => parseFloat(a.change_pct) - parseFloat(b.change_pct),
   },
   {
+    title: '市值',
+    dataIndex: 'market_cap_usd',
+    key: 'market_cap_usd',
+    width: 90,
+    render: v => v || '-',
+  },
+  {
     title: 'BTC涨跌',
     dataIndex: 'btc_change_pct',
     key: 'btc_change_pct',
