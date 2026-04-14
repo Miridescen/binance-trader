@@ -111,9 +111,7 @@ def close_all_positions_market(hedge: bool):
 
 
 def save_close_log(positions: list, now: datetime):
-    """平仓前把收益数据回填到数据库对应的开仓行；无匹配行则新增一行"""
-    ts = now.strftime("%Y-%m-%d %H:%M:%S")
-
+    """平仓前把收益数据（不含 close_time）预填到数据库，close_time 由实际成交后回填"""
     for p in positions:
         amt      = float(p["positionAmt"])
         entry    = float(p["entryPrice"])
@@ -125,7 +123,6 @@ def save_close_log(positions: list, now: datetime):
         sym      = p["symbol"]
 
         close_data = {
-            "close_time":     ts,
             "entry_price":    entry,
             "close_price":    mark,
             "position_amt":   abs(amt),
@@ -137,7 +134,19 @@ def save_close_log(positions: list, now: datetime):
 
         db.update_close_data(sym, "", close_data)
 
-    log.info(f"上周期收益已回填到数据库（{len(positions)} 条）")
+    log.info(f"上周期收益已预填到数据库（{len(positions)} 条，close_time 待回填）")
+
+
+def _fill_close_time(symbols: list):
+    """将指定币种未平仓记录的 close_time 回填为当前时间"""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with db.get_conn() as conn:
+        for sym in symbols:
+            conn.execute(
+                "UPDATE open_log SET close_time = ? WHERE symbol = ? AND (close_time IS NULL OR close_time = '')",
+                (ts, sym)
+            )
+    log.info(f"已回填 close_time（{len(symbols)} 个币种，{ts}）")
 
 
 def _save_real_daily_summary():
@@ -317,10 +326,12 @@ def run_limit_close():
         time.sleep(CLOSE_CHECK_INTERVAL)
 
         still_pending = {}
+        filled_symbols = []
         for symbol, data in pending.items():
             status = get_order_status(symbol, data["orderId"])
             if status == "FILLED":
                 log.info(f"  {symbol} 限价平仓已成交 ✅")
+                filled_symbols.append(symbol)
             elif status == "PARTIALLY_FILLED":
                 log.info(f"  {symbol} 部分成交，继续等待...")
                 still_pending[symbol] = data
@@ -351,6 +362,8 @@ def run_limit_close():
                 time.sleep(0.15)
 
         pending = still_pending
+        if filled_symbols:
+            _fill_close_time(filled_symbols)
 
     log.info(f"【限价平仓阶段结束】剩余未成交：{len(pending)} 个")
     return pending, close_start_ms
@@ -374,6 +387,18 @@ def run_market_close(remaining: dict, close_start_ms: int = 0):
     # 市价清掉剩余持仓
     close_all_positions_market(hedge)
     close_end_ms = int(time.time() * 1000)
+
+    # 回填所有还没有 close_time 的记录（市价兜底成交的）
+    try:
+        with db.get_conn() as conn:
+            unfilled = conn.execute(
+                "SELECT DISTINCT symbol FROM open_log WHERE close_time IS NULL OR close_time = ''"
+            ).fetchall()
+            syms = [r["symbol"] for r in unfilled]
+            if syms:
+                _fill_close_time(syms)
+    except Exception as e:
+        log.warning(f"回填 close_time 失败：{e}")
 
     try:
         close_commissions = get_commissions_by_symbol(close_start_ms, close_end_ms)
