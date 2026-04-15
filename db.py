@@ -220,7 +220,7 @@ def insert_open_log(rows: list[dict]):
 
 
 def update_close_data(symbol: str, open_time: str, close_data: dict):
-    """平仓时回填收益数据：匹配最近一条未平仓的同币种记录，只更新传入的字段"""
+    """平仓时回填收益数据：匹配最早一条未平仓的同币种记录（FIFO），只更新传入的字段"""
     defaults = {
         "close_time": None, "entry_price": None, "close_price": None,
         "position_amt": None, "unrealized_pnl": None, "roe_pct": None,
@@ -242,7 +242,7 @@ def update_close_data(symbol: str, open_time: str, close_data: dict):
             WHERE id = (
                 SELECT id FROM open_log
                 WHERE symbol = :symbol AND (close_time IS NULL OR close_time = '')
-                ORDER BY open_time DESC LIMIT 1
+                ORDER BY open_time ASC LIMIT 1
             )
         """, params)
 

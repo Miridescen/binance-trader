@@ -138,15 +138,45 @@ def save_close_log(positions: list, now: datetime):
 
 
 def _fill_close_time(symbols: list):
-    """将指定币种未平仓记录的 close_time 回填为当前时间"""
+    """成交后回填 close_time、close_price、pnl、roe（用当前标记价作为实际平仓价）"""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with db.get_conn() as conn:
         for sym in symbols:
+            row = conn.execute(
+                "SELECT id, side, entry_price, position_amt, leverage FROM open_log "
+                "WHERE symbol = ? AND (close_time IS NULL OR close_time = '') AND entry_price IS NOT NULL "
+                "ORDER BY open_time ASC LIMIT 1",
+                (sym,)
+            ).fetchone()
+            if not row:
+                continue
+
+            try:
+                mark = get_mark_price(sym)
+            except Exception:
+                conn.execute("UPDATE open_log SET close_time = ? WHERE id = ?", (ts, row["id"]))
+                continue
+
+            entry = row["entry_price"]
+            amt   = row["position_amt"] or 0
+            lev   = row["leverage"] or LEVERAGE
+            margin = entry * amt / lev if lev and entry else 0
+
+            # 根据 side 判断方向：含"空"=做空，否则做多
+            is_short = "空" in (row["side"] or "")
+            if is_short:
+                pnl = (entry - mark) * amt
+            else:
+                pnl = (mark - entry) * amt
+            roe = pnl / margin * 100 if margin else 0
+
             conn.execute(
-                "UPDATE open_log SET close_time = ? WHERE symbol = ? AND (close_time IS NULL OR close_time = '') AND entry_price IS NOT NULL",
-                (ts, sym)
+                "UPDATE open_log SET close_time = ?, close_price = ?, unrealized_pnl = ?, roe_pct = ? WHERE id = ?",
+                (ts, mark, round(pnl, 4), round(roe, 2), row["id"])
             )
-    log.info(f"已回填 close_time（{len(symbols)} 个币种，{ts}）")
+            log.info(f"  {sym} 平仓回填 close={mark:.6f} pnl={pnl:+.4f} roe={roe:+.1f}%")
+
+    log.info(f"已回填 close_time+price+pnl（{len(symbols)} 个币种，{ts}）")
 
 
 def _save_real_daily_summary():
