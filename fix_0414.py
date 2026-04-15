@@ -1,10 +1,10 @@
 """
-修复 04-14 开仓、04-15 平仓的记录
-数据来源：持仓明细 2026-04-15 08:30:07 快照
+修复 04-14 开仓记录：用 04-15 08:30 持仓明细快照的数据强制覆盖
 在服务器上运行: python3 fix_0414.py
 """
 import db
 
+# 来自持仓明细 2026-04-15 08:30:07 截图
 # (symbol, entry_price, close_price, pnl, roe)
 data = [
     ("ARIAUSDT",    0.7750,   0.1237,   24.75,  252.11),
@@ -24,17 +24,17 @@ data = [
     ("RAVEUSDT",    7.6040,  16.8686,  -27.79, -365.52),
 ]
 
-print("修复 04-14 开仓记录（平仓价/盈亏来自 04-15 08:30 快照）:")
+print("强制覆盖 04-14 开仓记录（15笔）:")
 with db.get_conn() as conn:
     for sym, entry, close, pnl, roe in data:
         result = conn.execute(
             "UPDATE open_log SET entry_price = ?, close_price = ?, unrealized_pnl = ?, roe_pct = ?, leverage = 3 "
-            "WHERE symbol = ? AND open_time LIKE '2026-04-14%' AND (entry_price IS NULL OR close_price IS NULL)",
+            "WHERE symbol = ? AND open_time LIKE '2026-04-14%'",
             (entry, close, pnl, roe, sym)
         )
         if result.rowcount:
             print(f"  {sym:<16} entry={entry}  close={close}  pnl={pnl:+.2f}  roe={roe:+.1f}% ✅")
         else:
-            print(f"  {sym:<16} 未匹配（可能已有数据）")
+            print(f"  {sym:<16} 未找到04-14记录 ❌")
 
 print("\n修复完成")
