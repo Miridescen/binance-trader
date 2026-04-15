@@ -143,7 +143,7 @@ def _fill_close_time(symbols: list):
     with db.get_conn() as conn:
         for sym in symbols:
             conn.execute(
-                "UPDATE open_log SET close_time = ? WHERE symbol = ? AND (close_time IS NULL OR close_time = '')",
+                "UPDATE open_log SET close_time = ? WHERE symbol = ? AND (close_time IS NULL OR close_time = '') AND entry_price IS NOT NULL",
                 (ts, sym)
             )
     log.info(f"已回填 close_time（{len(symbols)} 个币种，{ts}）")
@@ -392,7 +392,7 @@ def run_market_close(remaining: dict, close_start_ms: int = 0):
     try:
         with db.get_conn() as conn:
             unfilled = conn.execute(
-                "SELECT DISTINCT symbol FROM open_log WHERE close_time IS NULL OR close_time = ''"
+                "SELECT DISTINCT symbol FROM open_log WHERE (close_time IS NULL OR close_time = '') AND entry_price IS NOT NULL"
             ).fetchall()
             syms = [r["symbol"] for r in unfilled]
             if syms:

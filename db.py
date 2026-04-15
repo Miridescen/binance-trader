@@ -220,25 +220,31 @@ def insert_open_log(rows: list[dict]):
 
 
 def update_close_data(symbol: str, open_time: str, close_data: dict):
-    """平仓时回填收益数据：匹配最近一条未平仓的同币种记录"""
+    """平仓时回填收益数据：匹配最近一条未平仓的同币种记录，只更新传入的字段"""
+    defaults = {
+        "close_time": None, "entry_price": None, "close_price": None,
+        "position_amt": None, "unrealized_pnl": None, "roe_pct": None,
+        "leverage": None, "close_reason": None, "close_commission": None,
+    }
+    params = {**defaults, **close_data, "symbol": symbol}
     with get_conn() as conn:
         conn.execute("""
             UPDATE open_log SET
-                close_time = :close_time,
-                entry_price = :entry_price,
-                close_price = :close_price,
-                position_amt = :position_amt,
-                unrealized_pnl = :unrealized_pnl,
-                roe_pct = :roe_pct,
-                leverage = :leverage,
-                close_reason = :close_reason,
+                close_time = COALESCE(:close_time, close_time),
+                entry_price = COALESCE(:entry_price, entry_price),
+                close_price = COALESCE(:close_price, close_price),
+                position_amt = COALESCE(:position_amt, position_amt),
+                unrealized_pnl = COALESCE(:unrealized_pnl, unrealized_pnl),
+                roe_pct = COALESCE(:roe_pct, roe_pct),
+                leverage = COALESCE(:leverage, leverage),
+                close_reason = COALESCE(:close_reason, close_reason),
                 close_commission = COALESCE(:close_commission, close_commission)
             WHERE id = (
                 SELECT id FROM open_log
                 WHERE symbol = :symbol AND (close_time IS NULL OR close_time = '')
                 ORDER BY open_time DESC LIMIT 1
             )
-        """, {"close_reason": None, "close_commission": None, **close_data, "symbol": symbol})
+        """, params)
 
 
 def patch_close_commissions(commissions: dict, today: str):
