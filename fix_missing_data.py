@@ -62,7 +62,54 @@ def fix_date(date, snapshot_data):
             else:
                 print(f"  {sym} 未匹配（可能已有数据）")
 
+# 04-14 缺失的（entry 来自 04-14 09:00 快照，pnl 来自 04-15 08:29 快照）
+data_0414_extra = [
+    ("BLESSUSDT", 0.026908, 6.4440, 64.4),
+    ("ONUSDT", 0.1572, 3.6653, 36.4),
+    ("WETUSDT", 0.16105, 3.1638, 31.7),
+    ("FOLKSUSDT", 1.241, -4.0247, -40.4),
+    ("IRYSUSDT", 0.03332, 5.1913, 51.9),
+    ("NEIROUSDT", 6.869e-05, 1.2098, 12.1),
+    ("ENJUSDT", 0.04376, -10.8788, -108.9),
+    ("GIGGLEUSDT", 38.72, -7.2151, -72.6),
+    ("SKYAIUSDT", 0.11046, -2.9176, -29.2),
+    ("ARIAUSDT", 0.775, 24.8824, 253.5),
+]
+
+# 04-15 缺失的（从 realtime 获取 entry_price，pnl 待平仓后回填）
+data_0415_entry_only = [
+    ("APRUSDT", 0.32777),
+    ("币安人生USDT", 0.34619),
+    ("BRUSDT", 0.17549),
+    ("XANUSDT", 0.011061),
+    ("COAIUSDT", 0.4026),
+    ("INUSDT", 0.07968),
+    ("AKEUSDT", 0.000669),
+    ("BUSDT", 0.1132),
+    ("LABUSDT", 0.47339),
+    ("LITUSDT", 1.0183),
+    ("BARDUSDT", 0.3015),
+]
+
+def fix_entry_only(date, entries):
+    """只补 entry_price，不补 pnl（等平仓时自动回填）"""
+    print(f"\n补 entry_price {date}:")
+    with db.get_conn() as conn:
+        for sym, entry in entries:
+            result = conn.execute(
+                "UPDATE open_log SET entry_price = ? "
+                "WHERE symbol = ? AND open_time LIKE ? AND entry_price IS NULL",
+                (entry, sym, f"{date}%")
+            )
+            if result.rowcount:
+                print(f"  {sym} entry={entry} ✅")
+            else:
+                print(f"  {sym} 未匹配")
+
+
 if __name__ == "__main__":
     fix_date("2026-04-14", data_0414)
+    fix_date("2026-04-14", data_0414_extra)
     fix_date("2026-04-15", data_0415)
+    fix_entry_only("2026-04-15", data_0415_entry_only)
     print("\n修复完成")
