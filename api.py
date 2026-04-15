@@ -21,7 +21,12 @@ def _strip_id(rows):
 
 @app.route("/api/positions")
 def positions():
-    return jsonify(_strip_id(db.get_positions_log_all()))
+    date = request.args.get("date")
+    if date:
+        return jsonify(_strip_id(db.get_positions_log_by_date(date)))
+    # 默认返回今天
+    today = __import__('datetime').datetime.now().strftime("%Y-%m-%d")
+    return jsonify(_strip_id(db.get_positions_log_by_date(today)))
 
 @app.route("/api/open_log")
 def open_log():

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Table, Card, Statistic, Row, Col, Spin } from 'antd'
+import { Table, Card, Statistic, Row, Col, Spin, Select, Space } from 'antd'
 import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Tag } from 'antd'
 import axios from 'axios'
@@ -17,7 +17,7 @@ function PnlCell({ value }) {
 }
 
 const columns = [
-  { title: '时间', dataIndex: 'time', key: 'time', width: 100, render: v => v ? v.slice(5, 16) : '-' },
+  { title: '时间', dataIndex: 'time', key: 'time', width: 100, render: v => v ? v.slice(11, 16) : '-' },
   {
     title: '账户余额', dataIndex: 'balance_usdt', key: 'balance_usdt', width: 110,
     render: v => <span style={{ fontWeight: 500 }}>{parseFloat(v).toFixed(2)}</span>,
@@ -49,25 +49,34 @@ const columns = [
   },
 ]
 
+// 生成最近 N 天的日期选项
+function recentDates(n) {
+  const dates = []
+  for (let i = 0; i < n; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    dates.push(d.toISOString().slice(0, 10))
+  }
+  return dates
+}
+
 export default function Positions() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [rt, setRt] = useState(null)           // 实时数据
+  const [rt, setRt] = useState(null)
   const [rtUpdated, setRtUpdated] = useState(null)
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 50 })
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
 
-  // 历史表格数据（每分钟刷新）
-  const fetchData = async () => {
+  const fetchData = async (date) => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/positions')
+      const res = await axios.get(`/api/positions?date=${date}`)
       setData(res.data.map((r, i) => ({ ...r, key: i })).reverse())
     } finally {
       setLoading(false)
     }
   }
 
-  // 实时统计卡片（每5分钟刷新）
   const fetchRealtime = async () => {
     try {
       const res = await axios.get('/api/realtime')
@@ -79,12 +88,12 @@ export default function Positions() {
   }
 
   useEffect(() => {
-    fetchData()
+    fetchData(selectedDate)
     fetchRealtime()
-    const t1 = setInterval(fetchData, 60_000)
+    const t1 = setInterval(() => fetchData(selectedDate), 120_000)
     const t2 = setInterval(fetchRealtime, 300_000)
     return () => { clearInterval(t1); clearInterval(t2) }
-  }, [])
+  }, [selectedDate])
 
   const balance   = rt ? rt.balance   : 0
   const totalPnl  = rt ? rt.total_pnl : 0
@@ -131,15 +140,18 @@ export default function Positions() {
         </Col>
       </Row>
       <Card size="small">
+        <Space style={{ marginBottom: 12 }}>
+          <Select
+            value={selectedDate}
+            onChange={v => setSelectedDate(v)}
+            options={recentDates(30).map(d => ({ label: d, value: d }))}
+            style={{ width: 140 }}
+          />
+          <span style={{ color: '#999', fontSize: 12 }}>{data.length} 条</span>
+        </Space>
         <Spin spinning={loading}>
           <Table columns={columns} dataSource={data}
-            pagination={{
-              ...pagination,
-              showSizeChanger: true,
-              pageSizeOptions: [20, 50, 100, 200],
-              showTotal: total => `共 ${total} 条`,
-              onChange: (page, pageSize) => setPagination({ current: page, pageSize }),
-            }}
+            pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: t => `共 ${t} 条` }}
             scroll={{ x: 'max-content' }} size="small"
             rowClassName={record => {
               const pnl = parseFloat(record.total_pnl)

@@ -320,6 +320,15 @@ def get_positions_log_all() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_positions_log_by_date(date: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM positions_log WHERE time LIKE ? ORDER BY id",
+            (f"{date}%",)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 # ── positions_detail 操作 ────────────────────────────────
 
 def insert_positions_detail(rows: list[dict]):
