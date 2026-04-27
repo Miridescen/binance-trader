@@ -38,7 +38,8 @@ def virtual_log():
 
 @app.route("/api/daily_summary")
 def daily_summary():
-    return jsonify(_strip_id(db.get_daily_summary_all()))
+    days = request.args.get("days", type=int)
+    return jsonify(db.get_daily_summary_all(days=days))
 
 @app.route("/api/btc_indicators")
 def btc_indicators():

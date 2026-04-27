@@ -509,9 +509,33 @@ def insert_daily_summary(rows: list[dict]):
         """, rows)
 
 
-def get_daily_summary_all() -> list[dict]:
+def get_daily_summary_all(days: int = None) -> list[dict]:
+    """聚合查询每日汇总。若传 days，仅返回最近 N 个有数据的日期。
+    使用 GROUP BY 兜底同一 (date,source,side) 多次写入产生的重复行。"""
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM daily_summary ORDER BY date DESC, source, side").fetchall()
+        if days:
+            sql = """
+                SELECT date, source, side,
+                       SUM(count)     AS count,
+                       SUM(wins)      AS wins,
+                       SUM(total_pnl) AS total_pnl
+                FROM daily_summary
+                WHERE date IN (SELECT DISTINCT date FROM daily_summary ORDER BY date DESC LIMIT ?)
+                GROUP BY date, source, side
+                ORDER BY date DESC, source, side
+            """
+            rows = conn.execute(sql, (days,)).fetchall()
+        else:
+            sql = """
+                SELECT date, source, side,
+                       SUM(count)     AS count,
+                       SUM(wins)      AS wins,
+                       SUM(total_pnl) AS total_pnl
+                FROM daily_summary
+                GROUP BY date, source, side
+                ORDER BY date DESC, source, side
+            """
+            rows = conn.execute(sql).fetchall()
         return [dict(r) for r in rows]
 
 

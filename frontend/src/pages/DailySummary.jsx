@@ -20,7 +20,6 @@ function PnlCell({ v, decimal = 1 }) {
   )
 }
 
-// 4 comparison groups
 const GROUPS = [
   { label: '涨幅榜-空', filtered: '涨幅榜-空（有过滤）', unfiltered: '涨幅榜-空（无过滤）' },
   { label: '涨幅榜-多', filtered: '涨幅榜-多（有过滤）', unfiltered: '涨幅榜-多（无过滤）' },
@@ -28,50 +27,38 @@ const GROUPS = [
   { label: '跌幅榜-多', filtered: '跌幅榜-多（有过滤）', unfiltered: '跌幅榜-多（无过滤）' },
 ]
 
-const ALL_SIDES = GROUPS.flatMap(g => [g.filtered, g.unfiltered])
+const REAL_SIDES = ['涨幅榜-空（有过滤）', '跌幅榜-空（有过滤）']
 
 export default function DailySummary() {
   const [loading, setLoading] = useState(true)
-  const [realData, setRealData] = useState([])
-  const [virtData, setVirtData] = useState([])
+  const [realSummary, setRealSummary] = useState({})
+  const [virtSummary, setVirtSummary] = useState({})
+  const [allDates, setAllDates] = useState([])
 
   useEffect(() => {
-    Promise.all([
-      axios.get('/api/open_log'),
-      axios.get('/api/virtual_log'),
-    ]).then(([r1, r2]) => {
-      setRealData(r1.data)
-      setVirtData(r2.data)
+    axios.get('/api/daily_summary?days=10').then(({ data }) => {
+      const real = {}, virt = {}
+      const dateSet = new Set()
+      for (const r of data) {
+        const bucket = r.source === '实盘' ? real : r.source === '虚拟盘' ? virt : null
+        if (!bucket) continue
+        if (!bucket[r.date]) bucket[r.date] = {}
+        bucket[r.date][r.side] = {
+          pnl: r.total_pnl || 0,
+          count: r.count || 0,
+          wins: r.wins || 0,
+        }
+        dateSet.add(r.date)
+      }
+      setRealSummary(real)
+      setVirtSummary(virt)
+      setAllDates([...dateSet].sort().reverse())
     }).finally(() => setLoading(false))
   }, [])
 
-  const buildSummary = (data, sides) => {
-    const closed = data.filter(r => r.close_time)
-    const dateMap = {}
-    for (const r of closed) {
-      const date = (r.close_time || '').slice(0, 10)
-      const side = r.side
-      if (!date || !sides.includes(side)) continue
-      if (!dateMap[date]) dateMap[date] = {}
-      if (!dateMap[date][side]) dateMap[date][side] = { pnl: 0, count: 0, wins: 0 }
-      const pnl = parseFloat(r.unrealized_pnl || 0)
-      dateMap[date][side].pnl += pnl
-      dateMap[date][side].count += 1
-      if (pnl > 0) dateMap[date][side].wins += 1
-    }
-    return dateMap
-  }
-
-  // Real
-  const realSides = ['涨幅榜-空（有过滤）', '跌幅榜-空（有过滤）']
-  const realSummary = buildSummary(realData, realSides)
-  const virtSummary = buildSummary(virtData, ALL_SIDES)
-  const allDates = [...new Set([...Object.keys(realSummary), ...Object.keys(virtSummary)])].sort().reverse()
-
-  // Real table
   const realColumns = [
     { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b>{v?.slice(5)}</b> },
-    ...realSides.map(side => ({
+    ...REAL_SIDES.map(side => ({
       title: side.includes('涨幅') ? '涨幅空（有过滤）' : '跌幅空（有过滤）',
       dataIndex: side, key: side, width: 110,
       render: v => <PnlCell v={v} decimal={2} />,
@@ -84,19 +71,18 @@ export default function DailySummary() {
   const realRows = allDates.map(date => {
     const row = { key: date, date }
     let total = 0, hasData = false
-    for (const s of realSides) {
+    for (const s of REAL_SIDES) {
       const d = realSummary[date]?.[s]
       row[s] = d || null
       if (d) { total += d.pnl; hasData = true }
     }
     row.total = hasData ? total : null
     return row
-  }).filter(r => realSides.some(s => r[s]))
+  }).filter(r => REAL_SIDES.some(s => r[s]))
 
   const realTotals = {}
-  for (const s of realSides) realTotals[s] = realRows.reduce((acc, r) => acc + (r[s]?.pnl || 0), 0)
+  for (const s of REAL_SIDES) realTotals[s] = realRows.reduce((acc, r) => acc + (r[s]?.pnl || 0), 0)
 
-  // Virtual: build rows per group
   const buildGroupRows = (group) => {
     const { filtered, unfiltered } = group
     return allDates.map(date => {
@@ -120,10 +106,9 @@ export default function DailySummary() {
 
   return (
     <Spin spinning={loading}>
-      {/* 实盘 */}
-      <Card size="small" title="实盘每日汇总" style={{ marginBottom: 16 }}>
+      <Card size="small" title="实盘每日汇总（近10天）" style={{ marginBottom: 16 }}>
         <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-          {realSides.map(s => {
+          {REAL_SIDES.map(s => {
             const pnl = realTotals[s] || 0
             return (
               <Col xs={12} sm={8} md={6} key={s}>
@@ -141,7 +126,6 @@ export default function DailySummary() {
           pagination={false} scroll={{ x: 'max-content' }} size="small" />
       </Card>
 
-      {/* 虚拟盘 4 组对比 */}
       <Row gutter={[12, 12]}>
         {GROUPS.map(group => {
           const rows = buildGroupRows(group)
