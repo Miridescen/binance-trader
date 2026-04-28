@@ -247,6 +247,20 @@ def update_close_data(symbol: str, open_time: str, close_data: dict):
         """, params)
 
 
+def get_oldest_open_position(symbol: str) -> dict:
+    """FIFO 取一条最早未平仓的同币记录（含 entry_price/amt/leverage/side），无则返回 None。
+    供回填前算 pnl 用，与 update_close_data 的 FIFO 排序保持一致。"""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM open_log "
+            "WHERE symbol = ? AND (close_time IS NULL OR close_time = '') "
+            "      AND entry_price IS NOT NULL "
+            "ORDER BY open_time ASC LIMIT 1",
+            (symbol,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def patch_close_commissions(commissions: dict, today: str):
     """平仓后回填手续费"""
     with get_conn() as conn:
