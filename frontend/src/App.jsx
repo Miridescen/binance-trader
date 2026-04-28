@@ -3,7 +3,6 @@ import { Layout, Menu, Input, Button, Card } from 'antd'
 import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { DashboardOutlined, FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined, LineChartOutlined, LockOutlined } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
-import Positions from './pages/Positions'
 import OpenLog from './pages/OpenLog'
 import VirtualLog from './pages/VirtualLog'
 import VirtualDetail from './pages/VirtualDetail'
@@ -19,7 +18,6 @@ const ACCESS_PASSWORD = 'mu824810056'
 
 const menuItems = [
   { key: '/',                  icon: <DashboardOutlined />,      label: 'Dashboard' },
-  { key: '/positions',         icon: <FundOutlined />,           label: '持仓监控' },
   { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
   { key: '/positions-detail',  icon: <BarChartOutlined />,       label: '持仓明细' },
   { key: '/daily-summary',     icon: <BarChartOutlined />,       label: '每日汇总' },
@@ -101,7 +99,6 @@ export default function App() {
       <Content style={{ padding: 24 }}>
         <Routes>
           <Route path="/"           element={<Dashboard />} />
-          <Route path="/positions"   element={<Positions />} />
           <Route path="/openlog"    element={<OpenLog />} />
           <Route path="/daily-summary"     element={<DailySummary />} />
           <Route path="/virtuallog"        element={<VirtualLog />} />
