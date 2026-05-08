@@ -26,6 +26,7 @@ trader.db-wal
 .idea/
 .vscode/
 *.iml
+.claude/
 
 # macOS
 .DS_Store
