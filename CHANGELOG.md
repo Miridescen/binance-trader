@@ -2,6 +2,12 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-08
+
+- **修复幽灵开仓记录 bug**：以前 `save_open_csv` 在挂单成功后就 INSERT open_log，但限价单 60 秒后未成交且市价兜底也跳过的币种（如已有持仓）会留下 entry_price=NULL 的「幽灵记录」，导致后续平仓 FIFO 错位回填、历史 PnL 张冠李戴
+- **修复方案**：`run_open` 在两批开仓结束后调 `auth_get('/fapi/v2/positionRisk')` 拉真实持仓，传给 `save_open_csv` 过滤；只有币安账户里真实成交的币种才写入 open_log
+- **数据清理**：删除 4 条历史幽灵记录（id=484/489/490/509，TAG/LAB/DOGS）
+
 ## 2026-04-28
 
 - **新增 ROE 硬止损**：`monitor_positions.py` 每 2 分钟扫描持仓，ROE ≤ 阈值且连续 2 次确认则市价平仓，标记 `close_reason='ROE止损'`

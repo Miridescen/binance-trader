@@ -600,9 +600,16 @@ def log_event(event: str, detail: str):
     db.insert_event(event, detail)
 
 
-def save_open_csv(rows: list, now: datetime):
-    """将开单观察数据写入数据库（平仓字段留空待填）"""
+def save_open_csv(rows: list, now: datetime, held_symbols: set = None):
+    """将开单观察数据写入数据库（平仓字段留空待填）。
+    held_symbols: 只 INSERT 在此集合内的 symbol，过滤挂单成功但未真正成交的「幽灵记录」，
+                  避免下游 FIFO 回填错位。None 表示不过滤（降级模式）。"""
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
+    if held_symbols is not None:
+        skipped = [r["symbol"] for r in rows if r["symbol"] not in held_symbols]
+        rows = [r for r in rows if r["symbol"] in held_symbols]
+        if skipped:
+            log.warning(f"过滤未成交 {len(skipped)} 笔（不写入 open_log，避免幽灵记录）：{skipped}")
     db_rows = []
     for row in rows:
         db_rows.append({
@@ -633,7 +640,7 @@ def save_open_csv(rows: list, now: datetime):
 def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = None,
                        btc_pct: float = None, funding_rates: dict = None,
                        commissions: dict = None, oi_changes: dict = None,
-                       long_short_ratios: dict = None):
+                       long_short_ratios: dict = None, held_symbols: set = None):
     """开单完成后输出标的行情观察表，并保存 CSV"""
     if market_data is None:
         symbols = [t["symbol"] for t in top_gainers + top_losers]
@@ -708,7 +715,7 @@ def print_open_summary(top_gainers: list, top_losers: list, market_data: dict = 
         print(divider)
 
     print(header)
-    save_open_csv(csv_rows, datetime.now())
+    save_open_csv(csv_rows, datetime.now(), held_symbols=held_symbols)
 
 
 def run_open():
@@ -771,6 +778,16 @@ def run_open():
     run_batch_orders("空单（跌幅榜）", top_losers, "SELL", symbol_info, hedge, funding_rates)
     open_end_ms = int(time.time() * 1000)
 
+    # 开仓后查实际持仓，确认哪些币种真的成交了
+    # 只把「币安账户里真实存在持仓」的币种写入 open_log，避免幽灵记录污染 FIFO 回填
+    held_symbols = None
+    try:
+        positions_after = auth_get("/fapi/v2/positionRisk")
+        held_symbols = {p["symbol"] for p in positions_after if float(p["positionAmt"]) != 0}
+        log.info(f"开仓后实际持仓数：{len(held_symbols)} 个币种")
+    except Exception as e:
+        log.warning(f"开仓后获取持仓确认失败，回退为不过滤模式：{e}")
+
     # 开单完成后采集辅助指标
     try:
         btc_pct = get_btc_change_pct()
@@ -804,7 +821,8 @@ def run_open():
         commissions = {}
 
     print_open_summary(top_gainers, top_losers, market_data, btc_pct,
-                       funding_rates, commissions, oi_changes, long_short_ratios)
+                       funding_rates, commissions, oi_changes, long_short_ratios,
+                       held_symbols=held_symbols)
     log.info("【开单全部完成】")
 
 
