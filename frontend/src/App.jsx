@@ -9,6 +9,7 @@ import VirtualDetail from './pages/VirtualDetail'
 import PositionsDetail from './pages/PositionsDetail'
 import DailySummary from './pages/DailySummary'
 import BtcTrend from './pages/BtcTrend'
+import VirtualLog4h from './pages/VirtualLog4h'
 import 'antd/dist/reset.css'
 import './App.css'
 
@@ -19,10 +20,9 @@ const ACCESS_PASSWORD = 'mu824810056'
 const menuItems = [
   { key: '/',                  icon: <DashboardOutlined />,      label: 'Dashboard' },
   { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
-  { key: '/positions-detail',  icon: <BarChartOutlined />,       label: '持仓明细' },
   { key: '/daily-summary',     icon: <BarChartOutlined />,       label: '每日汇总' },
   { key: '/virtuallog',        icon: <ExperimentOutlined />,     label: '模拟盘' },
-  { key: '/virtual-detail',    icon: <LineChartOutlined />,      label: '模拟盘明细' },
+  { key: '/virtuallog-4h',     icon: <LineChartOutlined />,      label: '4h模拟盘' },
   { key: '/btc-trend',         icon: <FundOutlined />,           label: 'BTC趋势' },
 ]
 
@@ -102,6 +102,7 @@ export default function App() {
           <Route path="/openlog"    element={<OpenLog />} />
           <Route path="/daily-summary"     element={<DailySummary />} />
           <Route path="/virtuallog"        element={<VirtualLog />} />
+          <Route path="/virtuallog-4h"     element={<VirtualLog4h />} />
           <Route path="/virtual-detail"   element={<VirtualDetail />} />
           <Route path="/positions-detail" element={<PositionsDetail />} />
           <Route path="/btc-trend"       element={<BtcTrend />} />

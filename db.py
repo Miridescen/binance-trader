@@ -135,6 +135,47 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_time ON virtual_detail(time);
 
+        -- 4h 周期虚拟盘：每 4 小时一个窗口，组内 +10u 提前平仓
+        CREATE TABLE IF NOT EXISTS virtual_log_4h (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_time           TEXT,
+            window_end          TEXT,
+            close_time          TEXT,
+            close_reason        TEXT,
+            symbol              TEXT,
+            side                TEXT,
+            change_pct          REAL,
+            market_cap_usd      TEXT,
+            circulating_supply  TEXT,
+            has_mcap            INTEGER,
+            btc_change_pct      REAL,
+            symbol_funding_rate REAL,
+            oi_change_pct       REAL,
+            long_short_ratio    REAL,
+            entry_price         REAL,
+            close_price         REAL,
+            unrealized_pnl      REAL,
+            roe_pct             REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_4h_open_time ON virtual_log_4h(open_time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_4h_window_end ON virtual_log_4h(window_end);
+
+        -- 4h 周期虚拟盘持仓快照（即使已组内平仓，仍持续到 window_end）
+        CREATE TABLE IF NOT EXISTS virtual_detail_4h (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            time            TEXT,
+            log_id          INTEGER,
+            symbol          TEXT,
+            side            TEXT,
+            entry_price     REAL,
+            mark_price      REAL,
+            unrealized_pnl  REAL,
+            roe_pct         REAL,
+            is_post_close   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_4h_time ON virtual_detail_4h(time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_4h_log_id ON virtual_detail_4h(log_id);
+
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -492,6 +533,88 @@ def get_virtual_detail_times(date: str) -> list[str]:
             (f"{date}%",)
         ).fetchall()
         return [r["time"] for r in rows]
+
+
+# ── virtual_log_4h / virtual_detail_4h 操作 ─────────────
+
+def insert_virtual_log_4h(rows: list[dict]) -> list[int]:
+    """批量插入 4h 虚拟开仓，返回插入后的 id 列表（与输入顺序对应）"""
+    ids = []
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for row in rows:
+            cur.execute("""
+                INSERT INTO virtual_log_4h (open_time, window_end, close_time, close_reason,
+                    symbol, side, change_pct, market_cap_usd, circulating_supply, has_mcap,
+                    btc_change_pct, symbol_funding_rate, oi_change_pct, long_short_ratio,
+                    entry_price, close_price, unrealized_pnl, roe_pct)
+                VALUES (:open_time, :window_end, :close_time, :close_reason,
+                    :symbol, :side, :change_pct, :market_cap_usd, :circulating_supply, :has_mcap,
+                    :btc_change_pct, :symbol_funding_rate, :oi_change_pct, :long_short_ratio,
+                    :entry_price, :close_price, :unrealized_pnl, :roe_pct)
+            """, row)
+            ids.append(cur.lastrowid)
+    return ids
+
+
+def update_virtual_close_4h(row_id: int, close_data: dict):
+    """4h 虚拟平仓：按 id 更新（含 close_reason）"""
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE virtual_log_4h SET
+                close_time = :close_time,
+                close_price = :close_price,
+                unrealized_pnl = :unrealized_pnl,
+                roe_pct = :roe_pct,
+                close_reason = :close_reason
+            WHERE id = :id
+        """, {**close_data, "id": row_id})
+
+
+def get_virtual_log_4h_active(now_ts: str) -> list[dict]:
+    """获取所有"窗口仍在进行中"的 4h 虚拟开仓（包括已组内平仓但 window_end 未到的）"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM virtual_log_4h WHERE window_end > ? ORDER BY id",
+            (now_ts,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_virtual_log_4h_to_settle(now_ts: str) -> list[dict]:
+    """到 window_end 仍未平仓的，需要做 4h 定时平仓"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM virtual_log_4h
+               WHERE (close_time IS NULL OR close_time = '')
+                 AND window_end <= ?
+               ORDER BY id""",
+            (now_ts,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_virtual_log_4h_open_unclosed(open_time: str, side: str) -> list[dict]:
+    """同一 open_time + side 下还未平仓的（用于组内 +10u 一起平）"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM virtual_log_4h
+               WHERE open_time = ? AND side = ?
+                 AND (close_time IS NULL OR close_time = '')
+               ORDER BY id""",
+            (open_time, side)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_virtual_detail_4h(rows: list[dict]):
+    with get_conn() as conn:
+        conn.executemany("""
+            INSERT INTO virtual_detail_4h (time, log_id, symbol, side, entry_price,
+                mark_price, unrealized_pnl, roe_pct, is_post_close)
+            VALUES (:time, :log_id, :symbol, :side, :entry_price,
+                :mark_price, :unrealized_pnl, :roe_pct, :is_post_close)
+        """, rows)
 
 
 def backup_tables(suffix: str = "bak_0407"):
