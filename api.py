@@ -250,16 +250,14 @@ def realtime():
 def dashboard():
     """看板数据：最新一条持仓监控 + 最新快照的实盘和模拟盘明细"""
     try:
-        # 最新持仓监控
-        latest_monitor = db.get_positions_log_all()
-        last_monitor = latest_monitor[-1] if latest_monitor else None
+        last_monitor = db.get_positions_log_latest()
         if last_monitor:
             last_monitor.pop("id", None)
 
-        # 最新实盘持仓明细（取最新时间点）
         with db.get_conn() as conn:
-            row = conn.execute("SELECT MAX(time) as t FROM positions_detail").fetchone()
-            latest_time = row["t"] if row else None
+            # 用 id 倒序拿最新时间（id 单调，对应 time 单调，比 MAX(time) 快很多）
+            row = conn.execute("SELECT time FROM positions_detail ORDER BY id DESC LIMIT 1").fetchone()
+            latest_time = row["time"] if row else None
             real_detail = []
             if latest_time:
                 rows = conn.execute(
@@ -269,9 +267,8 @@ def dashboard():
                 for r in real_detail:
                     r.pop("id", None)
 
-            # 最新模拟盘明细
-            row2 = conn.execute("SELECT MAX(time) as t FROM virtual_detail").fetchone()
-            virt_time = row2["t"] if row2 else None
+            row2 = conn.execute("SELECT time FROM virtual_detail ORDER BY id DESC LIMIT 1").fetchone()
+            virt_time = row2["time"] if row2 else None
             virt_detail = []
             if virt_time:
                 rows2 = conn.execute(

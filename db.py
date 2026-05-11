@@ -375,6 +375,12 @@ def get_positions_log_all() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_positions_log_latest() -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM positions_log ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+
 def get_positions_log_by_date(date: str) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
