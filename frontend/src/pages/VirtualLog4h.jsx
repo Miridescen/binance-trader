@@ -27,86 +27,101 @@ const SIDE_PAIRS = [
   { key: 'loser_long',   label: '跌幅榜-多', filtered: '跌幅榜-多（有过滤）', unfiltered: '跌幅榜-多（无过滤）', tagColor: 'orange' },
 ]
 
-function groupColumns(tagColor) {
-  return [
-    {
-      title: '开仓时间',
-      dataIndex: 'open_time',
-      key: 'open_time',
-      width: 130,
-      render: v => v ? v.slice(5, 16) : '-',
-      sorter: (a, b) => (a.open_time || '').localeCompare(b.open_time || ''),
-      defaultSortOrder: 'descend',
+const groupColumns = [
+  {
+    title: '开仓时间',
+    dataIndex: 'open_time',
+    key: 'open_time',
+    width: 130,
+    render: v => v ? v.slice(5, 16) : '-',
+    sorter: (a, b) => (a.open_time || '').localeCompare(b.open_time || ''),
+    defaultSortOrder: 'descend',
+  },
+  {
+    title: '笔数',
+    dataIndex: 'n_orders',
+    key: 'n_orders',
+    width: 60,
+  },
+  {
+    title: '触发',
+    key: 'trigger_kind',
+    width: 95,
+    render: (_, r) => {
+      if (r.n_hit > 0) return <Tag color="gold">+10u</Tag>
+      if (r.n_timed > 0) return <Tag color="default">4h 定平</Tag>
+      return <Tag>持仓中</Tag>
     },
-    {
-      title: '方向',
-      dataIndex: 'side',
-      key: 'side',
-      width: 80,
-      render: v => {
-        const isFiltered = v?.includes('有过滤')
-        return <Tag color={isFiltered ? tagColor : 'default'}>{isFiltered ? '有过滤' : '无过滤'}</Tag>
-      },
-      filters: [
-        { text: '有过滤', value: '有过滤' },
-        { text: '无过滤', value: '无过滤' },
-      ],
-      onFilter: (value, r) => r.side?.includes(value),
+    filters: [
+      { text: '+10u 触发', value: 'hit' },
+      { text: '4h 定平', value: 'timed' },
+    ],
+    onFilter: (value, r) => value === 'hit' ? r.n_hit > 0 : r.n_timed > 0,
+  },
+  {
+    title: '实际 PnL',
+    dataIndex: 'sum_pnl_actual',
+    key: 'sum_pnl_actual',
+    width: 110,
+    render: v => <PnlCell value={v} />,
+    sorter: (a, b) => parseFloat(a.sum_pnl_actual || 0) - parseFloat(b.sum_pnl_actual || 0),
+  },
+  {
+    title: '走完4h',
+    dataIndex: 'sum_pnl_if_held',
+    key: 'sum_pnl_if_held',
+    width: 110,
+    render: (v, r) => {
+      if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>同上</span>
+      return <PnlCell value={v} />
     },
-    {
-      title: '笔数',
-      dataIndex: 'n_orders',
-      key: 'n_orders',
-      width: 60,
+    sorter: (a, b) => parseFloat(a.sum_pnl_if_held || 0) - parseFloat(b.sum_pnl_if_held || 0),
+  },
+  {
+    title: '差额',
+    key: 'diff',
+    width: 90,
+    render: (_, r) => {
+      if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>-</span>
+      const a = parseFloat(r.sum_pnl_actual || 0)
+      const b = parseFloat(r.sum_pnl_if_held || 0)
+      const d = a - b
+      const color = d >= 0 ? '#3f8600' : '#cf1322'
+      return <span style={{ color, fontWeight: 500 }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}</span>
     },
-    {
-      title: '触发类型',
-      key: 'trigger_kind',
-      width: 100,
-      render: (_, r) => {
-        if (r.n_hit > 0) return <Tag color="gold">+10u 触发</Tag>
-        if (r.n_timed > 0) return <Tag color="default">4h 定平</Tag>
-        return <Tag>持仓中</Tag>
-      },
-      filters: [
-        { text: '+10u 触发', value: 'hit' },
-        { text: '4h 定平', value: 'timed' },
-      ],
-      onFilter: (value, r) => value === 'hit' ? r.n_hit > 0 : r.n_timed > 0,
-    },
-    {
-      title: '实际平仓 PnL',
-      dataIndex: 'sum_pnl_actual',
-      key: 'sum_pnl_actual',
-      width: 130,
-      render: v => <PnlCell value={v} />,
-      sorter: (a, b) => parseFloat(a.sum_pnl_actual || 0) - parseFloat(b.sum_pnl_actual || 0),
-    },
-    {
-      title: '走完4h PnL',
-      dataIndex: 'sum_pnl_if_held',
-      key: 'sum_pnl_if_held',
-      width: 130,
-      render: (v, r) => {
-        if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>同上</span>
-        return <PnlCell value={v} />
-      },
-      sorter: (a, b) => parseFloat(a.sum_pnl_if_held || 0) - parseFloat(b.sum_pnl_if_held || 0),
-    },
-    {
-      title: '+10u vs 走完',
-      key: 'diff',
-      width: 120,
-      render: (_, r) => {
-        if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>-</span>
-        const a = parseFloat(r.sum_pnl_actual || 0)
-        const b = parseFloat(r.sum_pnl_if_held || 0)
-        const d = a - b
-        const color = d >= 0 ? '#3f8600' : '#cf1322'
-        return <span style={{ color, fontWeight: 500 }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}</span>
-      },
-    },
-  ]
+  },
+]
+
+function SideTable({ side, label, color, rows }) {
+  const pnl = rows.reduce((a, r) => a + parseFloat(r.sum_pnl_actual || 0), 0)
+  return (
+    <Card
+      size="small"
+      title={
+        <span>
+          <Tag color={color}>{label}</Tag>
+          <span style={{ color: pnlColor(pnl), fontWeight: 500, marginLeft: 4 }}>
+            {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} U
+          </span>
+          <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{rows.length} 组</span>
+        </span>
+      }
+    >
+      <Table
+        columns={groupColumns}
+        dataSource={rows}
+        pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100] }}
+        scroll={{ x: 'max-content' }}
+        size="small"
+        rowClassName={r => {
+          const a = parseFloat(r.sum_pnl_actual || 0)
+          if (a > 0) return 'row-profit'
+          if (a < 0) return 'row-loss'
+          return ''
+        }}
+      />
+    </Card>
+  )
 }
 
 export default function VirtualLog4h() {
@@ -185,7 +200,8 @@ export default function VirtualLog4h() {
           <Tabs
             defaultActiveKey={SIDE_PAIRS[0].key}
             items={SIDE_PAIRS.map(p => {
-              const rows = groups.filter(g => g.side === p.filtered || g.side === p.unfiltered)
+              const fRows = groups.filter(g => g.side === p.filtered)
+              const uRows = groups.filter(g => g.side === p.unfiltered)
               const fPnl = sumActualBy(p.filtered)
               const uPnl = sumActualBy(p.unfiltered)
               return {
@@ -199,29 +215,14 @@ export default function VirtualLog4h() {
                   </span>
                 ),
                 children: (
-                  <>
-                    <div style={{ marginBottom: 8, color: '#666', fontSize: 13 }}>
-                      <span style={{ marginRight: 16 }}>
-                        <b>有过滤</b>: <span style={{ color: pnlColor(fPnl) }}>{fPnl >= 0 ? '+' : ''}{fPnl.toFixed(2)} U</span>
-                      </span>
-                      <span>
-                        <b>无过滤</b>: <span style={{ color: pnlColor(uPnl) }}>{uPnl >= 0 ? '+' : ''}{uPnl.toFixed(2)} U</span>
-                      </span>
-                    </div>
-                    <Table
-                      columns={groupColumns(p.tagColor)}
-                      dataSource={rows}
-                      pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: t => `共 ${t} 组` }}
-                      scroll={{ x: 'max-content' }}
-                      size="small"
-                      rowClassName={r => {
-                        const a = parseFloat(r.sum_pnl_actual || 0)
-                        if (a > 0) return 'row-profit'
-                        if (a < 0) return 'row-loss'
-                        return ''
-                      }}
-                    />
-                  </>
+                  <Row gutter={[12, 12]}>
+                    <Col xs={24} lg={12}>
+                      <SideTable side={p.filtered} label="有过滤" color={p.tagColor} rows={fRows} />
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <SideTable side={p.unfiltered} label="无过滤" color="default" rows={uRows} />
+                    </Col>
+                  </Row>
                 ),
               }
             })}
