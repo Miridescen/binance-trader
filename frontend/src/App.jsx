@@ -9,7 +9,7 @@ import VirtualDetail from './pages/VirtualDetail'
 import PositionsDetail from './pages/PositionsDetail'
 import DailySummary from './pages/DailySummary'
 import BtcTrend from './pages/BtcTrend'
-import VirtualLog4h from './pages/VirtualLog4h'
+import VirtualLogWindow from './pages/VirtualLog4h'
 import 'antd/dist/reset.css'
 import './App.css'
 
@@ -23,6 +23,8 @@ const menuItems = [
   { key: '/daily-summary',     icon: <BarChartOutlined />,       label: '每日汇总' },
   { key: '/virtuallog',        icon: <ExperimentOutlined />,     label: '模拟盘' },
   { key: '/virtuallog-4h',     icon: <LineChartOutlined />,      label: '4h模拟盘' },
+  { key: '/virtuallog-8h',     icon: <LineChartOutlined />,      label: '8h模拟盘' },
+  { key: '/virtuallog-12h',    icon: <LineChartOutlined />,      label: '12h模拟盘' },
   { key: '/btc-trend',         icon: <FundOutlined />,           label: 'BTC趋势' },
 ]
 
@@ -102,7 +104,9 @@ export default function App() {
           <Route path="/openlog"    element={<OpenLog />} />
           <Route path="/daily-summary"     element={<DailySummary />} />
           <Route path="/virtuallog"        element={<VirtualLog />} />
-          <Route path="/virtuallog-4h"     element={<VirtualLog4h />} />
+          <Route path="/virtuallog-4h"     element={<VirtualLogWindow window="4h" />} />
+          <Route path="/virtuallog-8h"     element={<VirtualLogWindow window="8h" />} />
+          <Route path="/virtuallog-12h"    element={<VirtualLogWindow window="12h" />} />
           <Route path="/virtual-detail"   element={<VirtualDetail />} />
           <Route path="/positions-detail" element={<PositionsDetail />} />
           <Route path="/btc-trend"       element={<BtcTrend />} />

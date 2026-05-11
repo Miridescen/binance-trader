@@ -119,21 +119,30 @@
 - SQLite 数据库（trader.db）
 - 主要表：open_log、batch_summary、events_log、positions_log、positions_detail、virtual_log、virtual_detail、virtual_log_4h、virtual_detail_4h、daily_summary、btc_indicator、btc_signal_log
 
-### 4h 周期虚拟盘（独立模拟器）
+### 周期虚拟盘（4h / 8h / 12h 三套并行）
 
-`virtual_trade_4h.py` 是与主模拟盘并行的高频对照沙盘：
+与主模拟盘并行的高频对照沙盘，共三个独立 systemd 服务，逻辑一致仅参数不同：
 
-| 项 | 配置 |
-|---|---|
-| 周期 | 4 小时 |
-| 开仓时刻 | 每天 00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30（5 分钟滑动窗口） |
-| 8 组方向 | 涨幅榜/跌幅榜 × 做空/做多 × 有过滤/无过滤 |
-| 提前止盈 | 组内合计浮盈 ≥ +10 USDT 时整组平仓（`close_reason='组内+10u'`） |
-| 定时平仓 | window_end（开仓 +4h-5min）仍未平的统一平仓（`close_reason='4h_timed'`） |
-| 快照 | 每 2 分钟，已平仓仓位仍持续快照到 window_end（便于和"不止盈走完 4h"对照） |
-| 参数 | 3x 杠杆 / 10U/笔，沿用主模拟盘 |
+| 周期 | 开仓时刻 | 数据表 | systemd 服务 |
+|---|---|---|---|
+| 4h | 00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30 | `virtual_log_4h` / `virtual_detail_4h` | `binance-virtual-4h` |
+| 8h | 00:30 / 08:30 / 16:30 | `virtual_log_8h` / `virtual_detail_8h` | `binance-virtual-8h` |
+| 12h | 08:30 / 20:30 | `virtual_log_12h` / `virtual_detail_12h` | `binance-virtual-12h` |
 
-数据表 `virtual_log_4h` / `virtual_detail_4h`，与主模拟盘表完全隔离。
+**共同规则**：
+- 8 组方向：涨幅榜/跌幅榜 × 做空/做多 × 有过滤/无过滤
+- 开仓窗口：XX:30 ~ XX:34（5 分钟内幂等补开仓）
+- 提前止盈：组内合计浮盈 ≥ +10 USDT 时整组平仓（`close_reason='组内+10u'`）
+- 定时平仓：window_end（开仓时刻 +N 小时 -5min）仍未平的统一平仓（`close_reason='{N}h_timed'`）
+- 快照：每 2 分钟，已平仓仓位仍持续快照到 window_end，便于"不止盈走完 Nh"对照分析
+- 参数：3x 杠杆 / 10U/笔，沿用主模拟盘
+
+**代码组织**：
+- `virtual_trade_window.py` 通用 `WindowedSimulator`（8h / 12h 使用）
+- `virtual_trade_4h.py` 是早期独立实现（逻辑等价，未迁移）
+- `virtual_trade_8h.py` / `virtual_trade_12h.py` 是 5 行薄入口
+
+**API**：`/api/virtual_log_window?window=4h|8h|12h`、`/api/virtual_groups?window=...`、`/api/virtual_detail_window?window=...`
 
 ### 前端展示
 - http://服务器IP:8080（密码保护）
@@ -147,7 +156,9 @@
 | `open_top_shorts.py` | 每日定时开仓/平仓策略 |
 | `monitor_positions.py` | 持仓监控 + ROE 硬止损 |
 | `virtual_trade.py` | 主模拟盘（每天 09:00 开 / 08:50 平，对照组 + 模拟空 + 模拟多 + 快照） |
-| `virtual_trade_4h.py` | 4h 周期模拟盘（每 4 小时一个窗口，组内 +10u 提前平仓） |
+| `virtual_trade_4h.py` | 4h 周期模拟盘（独立实现） |
+| `virtual_trade_window.py` | 通用窗口模拟器（被 8h / 12h 共享） |
+| `virtual_trade_8h.py` / `virtual_trade_12h.py` | 8h / 12h 周期模拟盘薄入口 |
 | `api.py` | Flask API 服务 |
 | `db.py` | SQLite 数据库模块 |
 | `binance_client.py` | 币安 API 客户端 |
@@ -168,6 +179,8 @@ systemctl restart binance-strategy    # 开仓策略
 systemctl restart binance-monitor     # 持仓监控
 systemctl restart binance-virtual     # 主模拟盘
 systemctl restart binance-virtual-4h  # 4h 周期模拟盘
+systemctl restart binance-virtual-8h  # 8h 周期模拟盘
+systemctl restart binance-virtual-12h # 12h 周期模拟盘
 systemctl restart binance-api         # API 服务
 
 # 查看日志

@@ -2,6 +2,7 @@
 SQLite 数据库模块，替代所有 CSV 文件的读写操作。
 数据库文件：trader.db（与脚本同目录）
 """
+from __future__ import annotations
 
 import os
 import sqlite3
@@ -175,6 +176,86 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_4h_time ON virtual_detail_4h(time);
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_4h_log_id ON virtual_detail_4h(log_id);
+
+        -- 8h 周期虚拟盘
+        CREATE TABLE IF NOT EXISTS virtual_log_8h (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_time           TEXT,
+            window_end          TEXT,
+            close_time          TEXT,
+            close_reason        TEXT,
+            symbol              TEXT,
+            side                TEXT,
+            change_pct          REAL,
+            market_cap_usd      TEXT,
+            circulating_supply  TEXT,
+            has_mcap            INTEGER,
+            btc_change_pct      REAL,
+            symbol_funding_rate REAL,
+            oi_change_pct       REAL,
+            long_short_ratio    REAL,
+            entry_price         REAL,
+            close_price         REAL,
+            unrealized_pnl      REAL,
+            roe_pct             REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_8h_open_time ON virtual_log_8h(open_time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_8h_window_end ON virtual_log_8h(window_end);
+
+        CREATE TABLE IF NOT EXISTS virtual_detail_8h (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            time            TEXT,
+            log_id          INTEGER,
+            symbol          TEXT,
+            side            TEXT,
+            entry_price     REAL,
+            mark_price      REAL,
+            unrealized_pnl  REAL,
+            roe_pct         REAL,
+            is_post_close   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_8h_time ON virtual_detail_8h(time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_8h_log_id ON virtual_detail_8h(log_id);
+
+        -- 12h 周期虚拟盘
+        CREATE TABLE IF NOT EXISTS virtual_log_12h (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_time           TEXT,
+            window_end          TEXT,
+            close_time          TEXT,
+            close_reason        TEXT,
+            symbol              TEXT,
+            side                TEXT,
+            change_pct          REAL,
+            market_cap_usd      TEXT,
+            circulating_supply  TEXT,
+            has_mcap            INTEGER,
+            btc_change_pct      REAL,
+            symbol_funding_rate REAL,
+            oi_change_pct       REAL,
+            long_short_ratio    REAL,
+            entry_price         REAL,
+            close_price         REAL,
+            unrealized_pnl      REAL,
+            roe_pct             REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_12h_open_time ON virtual_log_12h(open_time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_12h_window_end ON virtual_log_12h(window_end);
+
+        CREATE TABLE IF NOT EXISTS virtual_detail_12h (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            time            TEXT,
+            log_id          INTEGER,
+            symbol          TEXT,
+            side            TEXT,
+            entry_price     REAL,
+            mark_price      REAL,
+            unrealized_pnl  REAL,
+            roe_pct         REAL,
+            is_post_close   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_time ON virtual_detail_12h(time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_log_id ON virtual_detail_12h(log_id);
 
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
@@ -541,7 +622,90 @@ def get_virtual_detail_times(date: str) -> list[str]:
         return [r["time"] for r in rows]
 
 
-# ── virtual_log_4h / virtual_detail_4h 操作 ─────────────
+# ── virtual_log_{4h,8h,12h} / virtual_detail_{4h,8h,12h} 通用操作 ─────────────
+
+_ALLOWED_WINDOWS = {"4h", "8h", "12h"}
+
+
+def _ensure_window(window: str):
+    if window not in _ALLOWED_WINDOWS:
+        raise ValueError(f"unsupported window: {window!r}")
+
+
+def insert_virtual_log_window(window: str, rows: list[dict]) -> list[int]:
+    _ensure_window(window)
+    table = f"virtual_log_{window}"
+    ids = []
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for row in rows:
+            cur.execute(f"""
+                INSERT INTO {table} (open_time, window_end, close_time, close_reason,
+                    symbol, side, change_pct, market_cap_usd, circulating_supply, has_mcap,
+                    btc_change_pct, symbol_funding_rate, oi_change_pct, long_short_ratio,
+                    entry_price, close_price, unrealized_pnl, roe_pct)
+                VALUES (:open_time, :window_end, :close_time, :close_reason,
+                    :symbol, :side, :change_pct, :market_cap_usd, :circulating_supply, :has_mcap,
+                    :btc_change_pct, :symbol_funding_rate, :oi_change_pct, :long_short_ratio,
+                    :entry_price, :close_price, :unrealized_pnl, :roe_pct)
+            """, row)
+            ids.append(cur.lastrowid)
+    return ids
+
+
+def update_virtual_close_window(window: str, row_id: int, close_data: dict):
+    _ensure_window(window)
+    table = f"virtual_log_{window}"
+    with get_conn() as conn:
+        conn.execute(f"""
+            UPDATE {table} SET
+                close_time = :close_time,
+                close_price = :close_price,
+                unrealized_pnl = :unrealized_pnl,
+                roe_pct = :roe_pct,
+                close_reason = :close_reason
+            WHERE id = :id
+        """, {**close_data, "id": row_id})
+
+
+def get_virtual_log_window_active(window: str, now_ts: str) -> list[dict]:
+    _ensure_window(window)
+    table = f"virtual_log_{window}"
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM {table} WHERE window_end > ? ORDER BY id",
+            (now_ts,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_virtual_log_window_to_settle(window: str, now_ts: str) -> list[dict]:
+    _ensure_window(window)
+    table = f"virtual_log_{window}"
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM {table}
+                WHERE (close_time IS NULL OR close_time = '')
+                  AND window_end <= ?
+                ORDER BY id""",
+            (now_ts,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_virtual_detail_window(window: str, rows: list[dict]):
+    _ensure_window(window)
+    table = f"virtual_detail_{window}"
+    with get_conn() as conn:
+        conn.executemany(f"""
+            INSERT INTO {table} (time, log_id, symbol, side, entry_price,
+                mark_price, unrealized_pnl, roe_pct, is_post_close)
+            VALUES (:time, :log_id, :symbol, :side, :entry_price,
+                :mark_price, :unrealized_pnl, :roe_pct, :is_post_close)
+        """, rows)
+
+
+# ── virtual_log_4h / virtual_detail_4h 兼容旧 API ─────────────
 
 def insert_virtual_log_4h(rows: list[dict]) -> list[int]:
     """批量插入 4h 虚拟开仓，返回插入后的 id 列表（与输入顺序对应）"""

@@ -27,72 +27,69 @@ const SIDE_PAIRS = [
   { key: 'loser_long',   label: '跌幅榜-多', filtered: '跌幅榜-多（有过滤）', unfiltered: '跌幅榜-多（无过滤）', tagColor: 'orange' },
 ]
 
-const groupColumns = [
-  {
-    title: '开仓时间',
-    dataIndex: 'open_time',
-    key: 'open_time',
-    width: 130,
-    render: v => v ? v.slice(5, 16) : '-',
-    sorter: (a, b) => (a.open_time || '').localeCompare(b.open_time || ''),
-    defaultSortOrder: 'descend',
-  },
-  {
-    title: '笔数',
-    dataIndex: 'n_orders',
-    key: 'n_orders',
-    width: 60,
-  },
-  {
-    title: '触发',
-    key: 'trigger_kind',
-    width: 95,
-    render: (_, r) => {
-      if (r.n_hit > 0) return <Tag color="gold">+10u</Tag>
-      if (r.n_timed > 0) return <Tag color="default">4h 定平</Tag>
-      return <Tag>持仓中</Tag>
+function buildGroupColumns(windowLabel) {
+  return [
+    {
+      title: '开仓时间',
+      dataIndex: 'open_time',
+      key: 'open_time',
+      width: 130,
+      render: v => v ? v.slice(5, 16) : '-',
+      sorter: (a, b) => (a.open_time || '').localeCompare(b.open_time || ''),
+      defaultSortOrder: 'descend',
     },
-    filters: [
-      { text: '+10u 触发', value: 'hit' },
-      { text: '4h 定平', value: 'timed' },
-    ],
-    onFilter: (value, r) => value === 'hit' ? r.n_hit > 0 : r.n_timed > 0,
-  },
-  {
-    title: '实际 PnL',
-    dataIndex: 'sum_pnl_actual',
-    key: 'sum_pnl_actual',
-    width: 110,
-    render: v => <PnlCell value={v} />,
-    sorter: (a, b) => parseFloat(a.sum_pnl_actual || 0) - parseFloat(b.sum_pnl_actual || 0),
-  },
-  {
-    title: '走完4h',
-    dataIndex: 'sum_pnl_if_held',
-    key: 'sum_pnl_if_held',
-    width: 110,
-    render: (v, r) => {
-      if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>同上</span>
-      return <PnlCell value={v} />
+    { title: '笔数', dataIndex: 'n_orders', key: 'n_orders', width: 60 },
+    {
+      title: '触发',
+      key: 'trigger_kind',
+      width: 100,
+      render: (_, r) => {
+        if (r.n_hit > 0) return <Tag color="gold">+10u</Tag>
+        if (r.n_timed > 0) return <Tag color="default">{windowLabel} 定平</Tag>
+        return <Tag>持仓中</Tag>
+      },
+      filters: [
+        { text: '+10u 触发', value: 'hit' },
+        { text: `${windowLabel} 定平`, value: 'timed' },
+      ],
+      onFilter: (value, r) => value === 'hit' ? r.n_hit > 0 : r.n_timed > 0,
     },
-    sorter: (a, b) => parseFloat(a.sum_pnl_if_held || 0) - parseFloat(b.sum_pnl_if_held || 0),
-  },
-  {
-    title: '差额',
-    key: 'diff',
-    width: 90,
-    render: (_, r) => {
-      if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>-</span>
-      const a = parseFloat(r.sum_pnl_actual || 0)
-      const b = parseFloat(r.sum_pnl_if_held || 0)
-      const d = a - b
-      const color = d >= 0 ? '#3f8600' : '#cf1322'
-      return <span style={{ color, fontWeight: 500 }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}</span>
+    {
+      title: '实际 PnL',
+      dataIndex: 'sum_pnl_actual',
+      key: 'sum_pnl_actual',
+      width: 110,
+      render: v => <PnlCell value={v} />,
+      sorter: (a, b) => parseFloat(a.sum_pnl_actual || 0) - parseFloat(b.sum_pnl_actual || 0),
     },
-  },
-]
+    {
+      title: `走完${windowLabel}`,
+      dataIndex: 'sum_pnl_if_held',
+      key: 'sum_pnl_if_held',
+      width: 110,
+      render: (v, r) => {
+        if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>同上</span>
+        return <PnlCell value={v} />
+      },
+      sorter: (a, b) => parseFloat(a.sum_pnl_if_held || 0) - parseFloat(b.sum_pnl_if_held || 0),
+    },
+    {
+      title: '差额',
+      key: 'diff',
+      width: 90,
+      render: (_, r) => {
+        if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>-</span>
+        const a = parseFloat(r.sum_pnl_actual || 0)
+        const b = parseFloat(r.sum_pnl_if_held || 0)
+        const d = a - b
+        const color = d >= 0 ? '#3f8600' : '#cf1322'
+        return <span style={{ color, fontWeight: 500 }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}</span>
+      },
+    },
+  ]
+}
 
-function SideTable({ side, label, color, rows }) {
+function SideTable({ label, color, rows, columns }) {
   const pnl = rows.reduce((a, r) => a + parseFloat(r.sum_pnl_actual || 0), 0)
   return (
     <Card
@@ -108,7 +105,7 @@ function SideTable({ side, label, color, rows }) {
       }
     >
       <Table
-        columns={groupColumns}
+        columns={columns}
         dataSource={rows}
         pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100] }}
         scroll={{ x: 'max-content' }}
@@ -124,15 +121,17 @@ function SideTable({ side, label, color, rows }) {
   )
 }
 
-export default function VirtualLog4h() {
+export default function VirtualLogWindow({ window = '4h' }) {
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
+  const columns = buildGroupColumns(window)
 
   useEffect(() => {
-    axios.get('/api/virtual_4h_groups')
+    setLoading(true)
+    axios.get(`/api/virtual_groups?window=${window}`)
       .then(res => setGroups(res.data.map((g, i) => ({ ...g, key: i }))))
       .finally(() => setLoading(false))
-  }, [])
+  }, [window])
 
   const sumActualBy = side => groups
     .filter(g => g.side === side)
@@ -155,7 +154,7 @@ export default function VirtualLog4h() {
         </Col>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title="若都走完4h(对照)" value={Math.abs(totalIfHeld).toFixed(2)} suffix="U"
+            <Statistic title={`若都走完${window}(对照)`} value={Math.abs(totalIfHeld).toFixed(2)} suffix="U"
               prefix={totalIfHeld >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: totalIfHeld >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
@@ -167,7 +166,7 @@ export default function VirtualLog4h() {
         </Col>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title="4h定平组" value={nTimedGroups} suffix={`/ ${groups.length}`} />
+            <Statistic title={`${window}定平组`} value={nTimedGroups} suffix={`/ ${groups.length}`} />
           </Card>
         </Col>
       </Row>
@@ -194,10 +193,10 @@ export default function VirtualLog4h() {
                 children: (
                   <Row gutter={[12, 12]}>
                     <Col xs={24} lg={12}>
-                      <SideTable side={p.filtered} label="有过滤" color={p.tagColor} rows={fRows} />
+                      <SideTable label="有过滤" color={p.tagColor} rows={fRows} columns={columns} />
                     </Col>
                     <Col xs={24} lg={12}>
-                      <SideTable side={p.unfiltered} label="无过滤" color="default" rows={uRows} />
+                      <SideTable label="无过滤" color="default" rows={uRows} columns={columns} />
                     </Col>
                   </Row>
                 ),

@@ -91,42 +91,58 @@ def virtual_detail_times():
         return jsonify([])
     return jsonify(db.get_virtual_detail_times(date))
 
-@app.route("/api/virtual_log_4h")
-def virtual_log_4h():
+_WINDOW_WHITELIST = {"4h", "8h", "12h"}
+
+
+def _validate_window(w):
+    if w not in _WINDOW_WHITELIST:
+        return None
+    return w
+
+
+@app.route("/api/virtual_log_window")
+def virtual_log_window():
+    """按窗口取虚拟盘记录。?window=4h/8h/12h"""
+    w = _validate_window(request.args.get("window", "4h"))
+    if w is None:
+        return jsonify({"error": "invalid window"}), 400
     with db.get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM virtual_log_4h ORDER BY id"
-        ).fetchall()
+        rows = conn.execute(f"SELECT * FROM virtual_log_{w} ORDER BY id").fetchall()
         rows = [dict(r) for r in rows]
     return jsonify(_strip_id(rows))
 
 
-@app.route("/api/virtual_detail_4h")
-def virtual_detail_4h():
-    """4h 持仓快照：可按 log_id 或 open_time 过滤"""
+@app.route("/api/virtual_detail_window")
+def virtual_detail_window():
+    """按窗口取虚拟盘快照。?window=4h/8h/12h&open_time=&side="""
+    w = _validate_window(request.args.get("window", "4h"))
+    if w is None:
+        return jsonify({"error": "invalid window"}), 400
     log_id = request.args.get("log_id", type=int)
     open_time = request.args.get("open_time")
     side = request.args.get("side")
+    log_table = f"virtual_log_{w}"
+    det_table = f"virtual_detail_{w}"
     with db.get_conn() as conn:
         if log_id:
             rows = conn.execute(
-                "SELECT * FROM virtual_detail_4h WHERE log_id = ? ORDER BY time",
+                f"SELECT * FROM {det_table} WHERE log_id = ? ORDER BY time",
                 (log_id,)
             ).fetchall()
         elif open_time and side:
             rows = conn.execute(
-                """SELECT d.* FROM virtual_detail_4h d
-                   JOIN virtual_log_4h l ON d.log_id = l.id
-                   WHERE l.open_time = ? AND l.side = ?
-                   ORDER BY d.time, d.symbol""",
+                f"""SELECT d.* FROM {det_table} d
+                    JOIN {log_table} l ON d.log_id = l.id
+                    WHERE l.open_time = ? AND l.side = ?
+                    ORDER BY d.time, d.symbol""",
                 (open_time, side)
             ).fetchall()
         elif open_time:
             rows = conn.execute(
-                """SELECT d.* FROM virtual_detail_4h d
-                   JOIN virtual_log_4h l ON d.log_id = l.id
-                   WHERE l.open_time = ?
-                   ORDER BY d.time, d.symbol""",
+                f"""SELECT d.* FROM {det_table} d
+                    JOIN {log_table} l ON d.log_id = l.id
+                    WHERE l.open_time = ?
+                    ORDER BY d.time, d.symbol""",
                 (open_time,)
             ).fetchall()
         else:
@@ -135,43 +151,66 @@ def virtual_detail_4h():
     return jsonify(_strip_id(rows))
 
 
-@app.route("/api/virtual_4h_groups")
-def virtual_4h_groups():
-    """按 (open_time, side) 聚合的组级统计：用于"+10u 触发 vs 走完 4h"对照
-       返回每组：触发与否、组合计 PnL（平仓时）、若走完 4h 的合计 PnL（window_end 时刻快照）"""
+@app.route("/api/virtual_groups")
+def virtual_groups():
+    """按 (open_time, side) 聚合的组级统计：用于"+10u 触发 vs 走完窗口"对照。
+       ?window=4h/8h/12h"""
+    w = _validate_window(request.args.get("window", "4h"))
+    if w is None:
+        return jsonify({"error": "invalid window"}), 400
+    log_table = f"virtual_log_{w}"
+    det_table = f"virtual_detail_{w}"
+    timed_reason = f"{w}_timed"
+
     with db.get_conn() as conn:
         groups_rows = conn.execute(
-            """SELECT open_time, window_end, side,
-                      COUNT(*) AS n_orders,
-                      SUM(CASE WHEN close_reason='组内+10u' THEN 1 ELSE 0 END) AS n_hit,
-                      SUM(CASE WHEN close_reason='4h_timed' THEN 1 ELSE 0 END) AS n_timed,
-                      SUM(unrealized_pnl) AS sum_pnl_actual,
-                      MAX(close_reason) AS close_reason
-               FROM virtual_log_4h
-               WHERE close_time IS NOT NULL
-               GROUP BY open_time, side
-               ORDER BY open_time DESC, side"""
+            f"""SELECT open_time, window_end, side,
+                       COUNT(*) AS n_orders,
+                       SUM(CASE WHEN close_reason='组内+10u' THEN 1 ELSE 0 END) AS n_hit,
+                       SUM(CASE WHEN close_reason=? THEN 1 ELSE 0 END) AS n_timed,
+                       SUM(unrealized_pnl) AS sum_pnl_actual,
+                       MAX(close_reason) AS close_reason
+                FROM {log_table}
+                WHERE close_time IS NOT NULL
+                GROUP BY open_time, side
+                ORDER BY open_time DESC, side""",
+            (timed_reason,)
         ).fetchall()
         groups = [dict(r) for r in groups_rows]
 
-        # 对每个"+10u 触发组"，找 window_end 附近的 detail 快照合计（模拟"如果不止盈走完 4h"）
         for g in groups:
             if g["n_hit"] > 0:
                 row = conn.execute(
-                    """SELECT SUM(d.unrealized_pnl) AS sum_pnl_4h, d.time
-                       FROM virtual_detail_4h d
-                       JOIN virtual_log_4h l ON d.log_id = l.id
-                       WHERE l.open_time = ? AND l.side = ?
-                       GROUP BY d.time
-                       ORDER BY d.time DESC LIMIT 1""",
+                    f"""SELECT SUM(d.unrealized_pnl) AS sum_pnl_held, d.time
+                        FROM {det_table} d
+                        JOIN {log_table} l ON d.log_id = l.id
+                        WHERE l.open_time = ? AND l.side = ?
+                        GROUP BY d.time
+                        ORDER BY d.time DESC LIMIT 1""",
                     (g["open_time"], g["side"])
                 ).fetchone()
-                g["sum_pnl_if_held"] = row["sum_pnl_4h"] if row else None
+                g["sum_pnl_if_held"] = row["sum_pnl_held"] if row else None
                 g["last_detail_time"] = row["time"] if row else None
             else:
                 g["sum_pnl_if_held"] = g["sum_pnl_actual"]
                 g["last_detail_time"] = None
     return jsonify(groups)
+
+
+# 兼容旧路由：默认 window=4h，行为同旧
+@app.route("/api/virtual_log_4h")
+def virtual_log_4h_legacy():
+    return virtual_log_window()
+
+
+@app.route("/api/virtual_4h_groups")
+def virtual_4h_groups_legacy():
+    return virtual_groups()
+
+
+@app.route("/api/virtual_detail_4h")
+def virtual_detail_4h_legacy():
+    return virtual_detail_window()
 
 
 @app.route("/api/realtime")

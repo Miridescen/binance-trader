@@ -2,6 +2,18 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-11
+
+- **新增 8h / 12h 周期虚拟盘**：与 4h 模拟盘逻辑一致，仅开仓时刻和窗口长度不同
+  - 8h：每天开仓 00:30 / 08:30 / 16:30
+  - 12h：每天开仓 08:30 / 20:30
+  - 组内 +10u 提前平仓 + 已平仓持续快照规则同 4h
+  - 新表 `virtual_log_8h` / `virtual_detail_8h` / `virtual_log_12h` / `virtual_detail_12h`
+  - 新模块 `virtual_trade_window.py` 抽出通用 `WindowedSimulator`，`virtual_trade_8h.py` / `virtual_trade_12h.py` 是 5 行薄入口
+  - API 参数化：`/api/virtual_log_window?window=4h|8h|12h`、`/api/virtual_groups?window=...`、`/api/virtual_detail_window?window=...`（保留旧 `/api/virtual_log_4h` 等作兼容别名）
+  - 前端：原 `VirtualLog4h` 组件改为通用 `VirtualLogWindow`，接受 `window` prop；菜单新增"8h模拟盘""12h模拟盘"
+  - systemd：`binance-virtual-8h` / `binance-virtual-12h`，分别由 `start_virtual_8h.sh` / `start_virtual_12h.sh` 注册
+
 ## 2026-05-09
 
 - **新增 4h 周期虚拟盘**：`virtual_trade_4h.py` 独立运行，与现有 `virtual_trade.py` 互不影响
