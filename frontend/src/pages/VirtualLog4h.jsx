@@ -172,29 +172,6 @@ export default function VirtualLog4h() {
         </Col>
       </Row>
 
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        {SIDE_PAIRS.map(p => {
-          const fPnl = sumActualBy(p.filtered)
-          const uPnl = sumActualBy(p.unfiltered)
-          return (
-            <Col xs={24} sm={12} md={6} key={p.key}>
-              <Card size="small" title={p.label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ color: '#999', fontSize: 12 }}>有过滤</div>
-                    <b style={{ color: pnlColor(fPnl), fontSize: 16 }}>{fPnl >= 0 ? '+' : ''}{fPnl.toFixed(1)} U</b>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ color: '#999', fontSize: 12 }}>无过滤</div>
-                    <b style={{ color: pnlColor(uPnl), fontSize: 16 }}>{uPnl >= 0 ? '+' : ''}{uPnl.toFixed(1)} U</b>
-                  </div>
-                </div>
-              </Card>
-            </Col>
-          )
-        })}
-      </Row>
-
       <Card size="small">
         <Spin spinning={loading}>
           <Tabs
