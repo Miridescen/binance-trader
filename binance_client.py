@@ -94,6 +94,13 @@ def get_mark_price(symbol: str) -> float:
     data = public_get("/fapi/v1/premiumIndex", {"symbol": symbol})
     return float(data["markPrice"])
 
+
+def get_all_mark_prices() -> dict:
+    """一次拉所有 USDT 合约的标记价，返回 {symbol: markPrice}。
+    用于快照批量化：替代 N 次 get_mark_price 串行调用。"""
+    data = public_get("/fapi/v1/premiumIndex")
+    return {item["symbol"]: float(item["markPrice"]) for item in data}
+
 def get_ticker_24h(valid_symbols: set, min_volume: float) -> list:
     data = public_get("/fapi/v1/ticker/24hr")
     return [

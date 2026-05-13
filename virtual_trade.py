@@ -11,7 +11,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 from binance_client import (
-    public_get, get_exchange_info, get_ticker_24h, get_mark_price,
+    public_get, get_exchange_info, get_ticker_24h, get_mark_price, get_all_mark_prices,
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
     get_oi_changes, get_long_short_ratios,
 )
@@ -273,6 +273,13 @@ def virtual_snapshot():
     if not unclosed:
         return
 
+    # 批量拉一次全市场价，替代循环串行 API
+    try:
+        price_map = get_all_mark_prices()
+    except Exception as e:
+        log.warning(f"批量拉价失败，本次快照跳过：{e}")
+        return
+
     now = datetime.now()
     ts  = now.strftime("%Y-%m-%d %H:%M:%S")
     rows = []
@@ -283,10 +290,8 @@ def virtual_snapshot():
         entry = row["entry_price"]
         if entry is None:
             continue
-
-        try:
-            mark = get_mark_price(sym)
-        except Exception:
+        mark = price_map.get(sym)
+        if mark is None:
             continue
 
         notional = MARGIN_PER_POS * LEVERAGE
@@ -305,7 +310,6 @@ def virtual_snapshot():
             "unrealized_pnl":  pnl,
             "roe_pct":         roe,
         })
-        time.sleep(0.05)
 
     if rows:
         db.insert_virtual_detail(rows)

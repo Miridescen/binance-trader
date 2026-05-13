@@ -19,7 +19,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 from binance_client import (
-    get_exchange_info, get_ticker_24h, get_mark_price,
+    get_exchange_info, get_ticker_24h, get_mark_price, get_all_mark_prices,
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
     get_oi_changes, get_long_short_ratios,
 )
@@ -199,6 +199,13 @@ def virtual_snapshot_4h(now: datetime):
     if not active:
         return
 
+    # 批量拉一次全市场标记价（替代循环串行调用）
+    try:
+        price_map = get_all_mark_prices()
+    except Exception as e:
+        log.warning(f"4h 批量拉价失败，本次快照跳过：{e}")
+        return
+
     # 按组（open_time, side）聚合
     groups: dict[tuple[str, str], list[dict]] = {}
     for r in active:
@@ -209,15 +216,13 @@ def virtual_snapshot_4h(now: datetime):
 
     for (open_time, side), rows in groups.items():
         unclosed = [r for r in rows if not r["close_time"]]
-        # 计算每个仓位当前 PnL
         per_row_pnl = {}
         for r in rows:
             entry = r["entry_price"]
             if entry is None:
                 continue
-            try:
-                mark = get_mark_price(r["symbol"])
-            except Exception:
+            mark = price_map.get(r["symbol"])
+            if mark is None:
                 continue
             pnl, roe = _calc_pnl(entry, mark, side)
             per_row_pnl[r["id"]] = (mark, pnl, roe)
@@ -232,7 +237,6 @@ def virtual_snapshot_4h(now: datetime):
                 "roe_pct":        roe,
                 "is_post_close":  1 if r["close_time"] else 0,
             })
-            time.sleep(0.03)
 
         # 检查未平仓部分的合计是否触发
         unclosed_pnl_sum = sum(per_row_pnl[r["id"]][1] for r in unclosed
@@ -271,14 +275,18 @@ def virtual_close_4h_timed(now: datetime):
     if not to_settle:
         return
     log.info(f"【4h 定时平仓】{len(to_settle)} 笔 待平")
+    try:
+        price_map = get_all_mark_prices()
+    except Exception as e:
+        log.warning(f"  批量拉价失败，本次平仓跳过：{e}")
+        return
     for r in to_settle:
         entry = r["entry_price"]
         if entry is None:
             continue
-        try:
-            mark = get_mark_price(r["symbol"])
-        except Exception as e:
-            log.warning(f"  {r['symbol']} 获取标记价失败，跳过：{e}")
+        mark = price_map.get(r["symbol"])
+        if mark is None:
+            log.warning(f"  {r['symbol']} 价格缺失，跳过")
             continue
         pnl, roe = _calc_pnl(entry, mark, r["side"])
         db.update_virtual_close_4h(r["id"], {
@@ -288,7 +296,6 @@ def virtual_close_4h_timed(now: datetime):
             "roe_pct":        roe,
             "close_reason":   "4h_timed",
         })
-        time.sleep(0.05)
     log.info(f"【4h 定时平仓完成】")
 
 

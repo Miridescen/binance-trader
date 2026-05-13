@@ -2,6 +2,14 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-13（下午-第二轮）
+
+- **真正大头：批量拉价**：`get_mark_price` 单币种调用改为 `get_all_mark_prices` 一次拉全市场
+  - 起因：第一轮（5 分钟 + 错开）部署后 dashboard 仍 6-16 秒，因为单次 snapshot 里 80+ 仓位串行调用币安 API，单次快照 30-60 秒，CPU 持续被占
+  - 新增 `binance_client.get_all_mark_prices()` 一次返回全市场 `{symbol: markPrice}`
+  - 改 4 个服务的 `snapshot()` 和 `settle_expired()`：批量拉价一次，循环里读字典；去掉 sleep(0.03/0.05)
+  - 预期：单次 snapshot 从 30-60 秒 → 1-2 秒，CPU 占用降 95%+
+
 ## 2026-05-13（下午）
 
 - **降低 CPU 压力**：4 个模拟盘服务的快照频率从 2 分钟改为 5 分钟，并错开偏移

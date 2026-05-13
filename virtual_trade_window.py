@@ -20,7 +20,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 from binance_client import (
-    get_exchange_info, get_ticker_24h, get_mark_price,
+    get_exchange_info, get_ticker_24h, get_mark_price, get_all_mark_prices,
     get_coin_market_data, get_btc_change_pct, get_all_funding_rates,
     get_oi_changes, get_long_short_ratios,
 )
@@ -204,6 +204,13 @@ class WindowedSimulator:
         if not active:
             return
 
+        # 批量拉一次全市场标记价（替代每个仓位串行调用）
+        try:
+            price_map = get_all_mark_prices()
+        except Exception as e:
+            log.warning(f"{self.label} 批量拉价失败，本次快照跳过：{e}")
+            return
+
         # 按 (open_time, side) 聚合
         groups: dict[tuple[str, str], list[dict]] = {}
         for r in active:
@@ -219,9 +226,8 @@ class WindowedSimulator:
                 entry = r["entry_price"]
                 if entry is None:
                     continue
-                try:
-                    mark = get_mark_price(r["symbol"])
-                except Exception:
+                mark = price_map.get(r["symbol"])
+                if mark is None:
                     continue
                 pnl, roe = _calc_pnl(entry, mark, side)
                 per_row_pnl[r["id"]] = (mark, pnl, roe)
@@ -236,7 +242,6 @@ class WindowedSimulator:
                     "roe_pct":        roe,
                     "is_post_close":  1 if r["close_time"] else 0,
                 })
-                time.sleep(0.03)
 
             unclosed_pnl_sum = sum(per_row_pnl[r["id"]][1] for r in unclosed if r["id"] in per_row_pnl)
             if unclosed and unclosed_pnl_sum >= TARGET_GROUP_PNL:
@@ -268,14 +273,18 @@ class WindowedSimulator:
         if not to_settle:
             return
         log.info(f"【{self.label} 定时平仓】{len(to_settle)} 笔 待平")
+        try:
+            price_map = get_all_mark_prices()
+        except Exception as e:
+            log.warning(f"  批量拉价失败，本次平仓跳过：{e}")
+            return
         for r in to_settle:
             entry = r["entry_price"]
             if entry is None:
                 continue
-            try:
-                mark = get_mark_price(r["symbol"])
-            except Exception as e:
-                log.warning(f"  {r['symbol']} 获取标记价失败，跳过：{e}")
+            mark = price_map.get(r["symbol"])
+            if mark is None:
+                log.warning(f"  {r['symbol']} 价格缺失，跳过")
                 continue
             pnl, roe = _calc_pnl(entry, mark, r["side"])
             db.update_virtual_close_window(self.window, r["id"], {
@@ -285,7 +294,6 @@ class WindowedSimulator:
                 "roe_pct":        roe,
                 "close_reason":   self.timed_reason,
             })
-            time.sleep(0.05)
         log.info(f"【{self.label} 定时平仓完成】")
 
     # ── 主循环 ──
