@@ -2,6 +2,14 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-13
+
+- **服务器加固**：955MB 内存机器，业务进程已 8 个，加防护
+  - **加 1GB swap**（`/swapfile`）+ `vm.swappiness=10`，缓冲 OOM 风险
+  - **日志轮转**：`logrotate.binance-trader.conf` + `scripts/setup_logrotate.sh`，每日轮转 / 超 10MB 立即轮转 / 保留 7 份压缩
+  - **归档脚本**：`scripts/archive_old_details.py`，把 60 天前的 `*_detail` 表数据导出到 `archive/*.csv.gz` 并从主库删除（分批 DELETE 避免锁库；不自动 cron，需要时手动跑）
+  - 详见 ssh 操作记录
+
 ## 2026-05-11
 
 - **新增 8h / 12h 周期虚拟盘**：与 4h 模拟盘逻辑一致，仅开仓时刻和窗口长度不同
