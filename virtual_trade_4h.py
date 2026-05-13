@@ -47,7 +47,8 @@ CANDIDATE_BUF    = 6
 # ── 4h 周期参数 ──
 WINDOW_HOURS         = 4
 TARGET_GROUP_PNL     = 10.0     # 组内合计达到 +10u 触发组内平仓
-SNAPSHOT_INTERVAL_MIN = 2        # 快照间隔（分钟）
+SNAPSHOT_INTERVAL_MIN = 5        # 快照间隔（2→5：降 CPU 压力 60%）
+SNAPSHOT_OFFSET_MIN  = 1         # 错开：主盘 0 / 4h 1 / 8h 2 / 12h 3
 OPEN_HOURS           = (0, 4, 8, 12, 16, 20)
 OPEN_MINUTE          = 30
 OPEN_WINDOW_MIN      = 5         # 开仓滑动窗口：XX:30 ~ XX:34
@@ -312,21 +313,27 @@ def _opened_already(open_window_anchor_ts: str) -> bool:
         return row is not None
 
 
+def _snapshot_slot_id(now: datetime) -> int:
+    """快照 slot 编号；偏移 SNAPSHOT_OFFSET_MIN 后按 INTERVAL 分桶。
+    slot_id 变化时触发新一次快照。"""
+    total_min = now.hour * 60 + now.minute
+    return (total_min - SNAPSHOT_OFFSET_MIN) // SNAPSHOT_INTERVAL_MIN
+
+
 def main():
     db.init_db()
     log.info("4h 虚拟盘启动")
     log.info(f"  开仓时刻：每天 {OPEN_HOURS} 点 {OPEN_MINUTE} 分（5 分钟滑动窗口）")
     log.info(f"  组内 +10u 触发：≥ {TARGET_GROUP_PNL} USDT 整组平仓")
-    log.info(f"  快照间隔：{SNAPSHOT_INTERVAL_MIN} 分钟（已平仓仍持续到 window_end）")
+    log.info(f"  快照间隔：{SNAPSHOT_INTERVAL_MIN} 分钟  偏移：{SNAPSHOT_OFFSET_MIN} 分钟")
     log.info(f"  8 组：涨幅榜/跌幅榜 × 做空/做多 × 有过滤/无过滤")
 
-    last_snapshot_slot = -1
+    last_snapshot_slot = None
 
     # 启动时立即快照一次
     try:
         virtual_snapshot_4h(datetime.now())
-        n = datetime.now()
-        last_snapshot_slot = n.hour * 60 + n.minute // SNAPSHOT_INTERVAL_MIN * SNAPSHOT_INTERVAL_MIN
+        last_snapshot_slot = _snapshot_slot_id(datetime.now())
     except Exception as e:
         log.error(f"启动快照失败：{e}", exc_info=True)
 
@@ -350,8 +357,8 @@ def main():
                 except Exception as e:
                     log.error(f"4h 虚拟开仓出错：{e}", exc_info=True)
 
-        # 3) 每 SNAPSHOT_INTERVAL_MIN 分钟快照一次
-        current_slot = now.hour * 60 + now.minute // SNAPSHOT_INTERVAL_MIN * SNAPSHOT_INTERVAL_MIN
+        # 3) 每 SNAPSHOT_INTERVAL_MIN 分钟快照一次（带偏移）
+        current_slot = _snapshot_slot_id(now)
         if current_slot != last_snapshot_slot:
             try:
                 virtual_snapshot_4h(now)

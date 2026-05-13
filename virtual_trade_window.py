@@ -41,7 +41,7 @@ SHORT_MIN_CHANGE = 5.0
 CANDIDATE_BUF    = 6
 
 TARGET_GROUP_PNL      = 10.0  # 组内合计 ≥ 此值触发整组平仓
-SNAPSHOT_INTERVAL_MIN = 2     # 快照间隔
+SNAPSHOT_INTERVAL_MIN = 5     # 快照间隔（2→5：降 CPU 压力 60%）
 OPEN_MINUTE           = 30
 OPEN_WINDOW_MIN       = 5     # 滑动开仓窗口
 CHECK_INTERVAL        = 30    # 主循环秒数
@@ -71,12 +71,15 @@ def _calc_pnl(entry: float, mark: float, side: str) -> tuple[float, float]:
 class WindowedSimulator:
     """周期窗口模拟器。一个实例对应一组 (窗口长度, 表名后缀, 开仓时刻列表)。"""
 
-    def __init__(self, window: str, hours: int, open_hours: tuple[int, ...], label: str | None = None):
+    def __init__(self, window: str, hours: int, open_hours: tuple[int, ...],
+                 label: str | None = None, snapshot_offset: int = 0):
         """
         window: 数据表后缀，'4h' / '8h' / '12h'
         hours:  窗口长度（小时）
         open_hours: 一天中开仓的整点列表，每个整点的 :30 触发
         label:  日志前缀，默认 window
+        snapshot_offset: 快照分钟偏移（0~SNAPSHOT_INTERVAL_MIN-1），
+                         用于错开多个服务的快照时刻，避免同时打 CPU
         """
         self.window = window
         self.hours = hours
@@ -84,6 +87,13 @@ class WindowedSimulator:
         self.label = label or window
         self.timed_reason = f"{window}_timed"
         self.table_log = f"virtual_log_{window}"
+        self.snapshot_offset = snapshot_offset % SNAPSHOT_INTERVAL_MIN
+
+    def _snapshot_slot_id(self, now: datetime) -> int:
+        """计算当前所属的快照 slot 编号；当 slot_id 变化时触发新一次快照。
+        偏移 offset 的服务在 :offset, :offset+INTERVAL, :offset+2*INTERVAL ... 这些分钟触发。"""
+        total_min = now.hour * 60 + now.minute
+        return (total_min - self.snapshot_offset) // SNAPSHOT_INTERVAL_MIN
 
     # ── 开仓 ──
     def open_batch(self, now: datetime):
@@ -296,14 +306,13 @@ class WindowedSimulator:
         log.info(f"{self.label} 虚拟盘启动")
         log.info(f"  开仓时刻：每天 {self.open_hours} 点 {OPEN_MINUTE} 分（{OPEN_WINDOW_MIN} 分钟滑动窗口）")
         log.info(f"  组内 +10u 触发：≥ {TARGET_GROUP_PNL} USDT 整组平仓")
-        log.info(f"  窗口长度：{self.hours} 小时   快照间隔：{SNAPSHOT_INTERVAL_MIN} 分钟")
+        log.info(f"  窗口长度：{self.hours} 小时   快照间隔：{SNAPSHOT_INTERVAL_MIN} 分钟  偏移：{self.snapshot_offset} 分钟")
         log.info(f"  8 组：涨幅榜/跌幅榜 × 做空/做多 × 有过滤/无过滤")
 
-        last_snapshot_slot = -1
+        last_snapshot_slot = None
         try:
             self.snapshot(datetime.now())
-            n = datetime.now()
-            last_snapshot_slot = n.hour * 60 + n.minute // SNAPSHOT_INTERVAL_MIN * SNAPSHOT_INTERVAL_MIN
+            last_snapshot_slot = self._snapshot_slot_id(datetime.now())
         except Exception as e:
             log.error(f"启动快照失败：{e}", exc_info=True)
 
@@ -321,7 +330,7 @@ class WindowedSimulator:
                     try: self.open_batch(anchor)
                     except Exception as e: log.error(f"{self.label} 虚拟开仓出错：{e}", exc_info=True)
 
-            current_slot = now.hour * 60 + now.minute // SNAPSHOT_INTERVAL_MIN * SNAPSHOT_INTERVAL_MIN
+            current_slot = self._snapshot_slot_id(now)
             if current_slot != last_snapshot_slot:
                 try:
                     self.snapshot(now)

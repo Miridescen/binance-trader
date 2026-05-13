@@ -264,7 +264,8 @@ def virtual_open():
 
 # ── 虚拟持仓快照 ──────────────────────────────────────
 
-MONITOR_INTERVAL = 2    # 快照间隔（分钟）
+MONITOR_INTERVAL = 5    # 快照间隔（分钟）；2→5 降 CPU 压力 60%
+MONITOR_OFFSET   = 0    # 偏移；主盘 0 / 4h 1 / 8h 2 / 12h 3，错开多服务快照
 
 def virtual_snapshot():
     """对所有未平仓虚拟仓位拍快照，记录当前 PnL/ROE"""
@@ -338,7 +339,7 @@ def main():
     try:
         virtual_snapshot()
         now = datetime.now()
-        last_snapshot_slot = now.hour * 60 + now.minute // MONITOR_INTERVAL * MONITOR_INTERVAL
+        last_snapshot_slot = (now.hour * 60 + now.minute - MONITOR_OFFSET) // MONITOR_INTERVAL
     except Exception as e:
         log.error(f"首次快照失败：{e}")
 
@@ -367,8 +368,8 @@ def main():
             except Exception as e:
                 log.error(f"虚拟开仓出错：{e}", exc_info=True)
 
-        # 每 20 分钟快照
-        current_slot = now.hour * 60 + now.minute // MONITOR_INTERVAL * MONITOR_INTERVAL
+        # 每 MONITOR_INTERVAL 分钟快照（带偏移）
+        current_slot = (now.hour * 60 + now.minute - MONITOR_OFFSET) // MONITOR_INTERVAL
         if current_slot != last_snapshot_slot:
             try:
                 virtual_snapshot()

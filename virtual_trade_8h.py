@@ -14,4 +14,5 @@ if __name__ == "__main__":
         hours=8,
         open_hours=(0, 8, 16),
         label="8h",
+        snapshot_offset=2,  # 错开：主盘 0 / 4h 1 / 8h 2 / 12h 3
     ).run()
