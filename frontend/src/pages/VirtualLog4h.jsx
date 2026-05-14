@@ -136,9 +136,21 @@ export default function VirtualLogWindow({ window = '4h' }) {
   const sumActualBy = side => groups
     .filter(g => g.side === side)
     .reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
+  const sumIfHeldBy = side => groups
+    .filter(g => g.side === side)
+    .reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
+  const isFilteredSide = s => s?.includes('有过滤')
+  const isUnfilteredSide = s => s?.includes('无过滤')
 
-  const totalActual = groups.reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
-  const totalIfHeld = groups.reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
+  // 有过滤 / 无过滤 各自的实际 PnL 和"若都走完 Nh"对照
+  const totalActualFiltered   = groups.filter(g => isFilteredSide(g.side))
+    .reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
+  const totalActualUnfiltered = groups.filter(g => isUnfilteredSide(g.side))
+    .reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
+  const totalIfHeldFiltered   = groups.filter(g => isFilteredSide(g.side))
+    .reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
+  const totalIfHeldUnfiltered = groups.filter(g => isUnfilteredSide(g.side))
+    .reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
   const nHitGroups   = groups.filter(g => g.n_hit > 0).length
   const nTimedGroups = groups.filter(g => g.n_timed > 0 && g.n_hit === 0).length
 
@@ -147,16 +159,30 @@ export default function VirtualLogWindow({ window = '4h' }) {
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title="总盈亏(实际)" value={Math.abs(totalActual).toFixed(2)} suffix="U"
-              prefix={totalActual >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: totalActual >= 0 ? '#3f8600' : '#cf1322' }} />
+            <Statistic title="总盈亏 · 有过滤" value={Math.abs(totalActualFiltered).toFixed(2)} suffix="U"
+              prefix={totalActualFiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: totalActualFiltered >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={6}>
           <Card size="small">
-            <Statistic title={`若都走完${window}(对照)`} value={Math.abs(totalIfHeld).toFixed(2)} suffix="U"
-              prefix={totalIfHeld >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: totalIfHeld >= 0 ? '#3f8600' : '#cf1322' }} />
+            <Statistic title="总盈亏 · 无过滤" value={Math.abs(totalActualUnfiltered).toFixed(2)} suffix="U"
+              prefix={totalActualUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: totalActualUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title={`走完${window} · 有过滤`} value={Math.abs(totalIfHeldFiltered).toFixed(2)} suffix="U"
+              prefix={totalIfHeldFiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: totalIfHeldFiltered >= 0 ? '#3f8600' : '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title={`走完${window} · 无过滤`} value={Math.abs(totalIfHeldUnfiltered).toFixed(2)} suffix="U"
+              prefix={totalIfHeldUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: totalIfHeldUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={6}>
@@ -180,13 +206,15 @@ export default function VirtualLogWindow({ window = '4h' }) {
               const uRows = groups.filter(g => g.side === p.unfiltered)
               const fPnl = sumActualBy(p.filtered)
               const uPnl = sumActualBy(p.unfiltered)
+              const fmtPnl = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`
               return {
                 key: p.key,
                 label: (
                   <span>
                     {p.label}{' '}
-                    <span style={{ color: pnlColor(fPnl + uPnl), fontSize: 12 }}>
-                      ({(fPnl + uPnl) >= 0 ? '+' : ''}{(fPnl + uPnl).toFixed(1)})
+                    <span style={{ fontSize: 12, color: '#666' }}>
+                      (有过滤 <span style={{ color: pnlColor(fPnl) }}>{fmtPnl(fPnl)}</span>
+                      , 无过滤 <span style={{ color: pnlColor(uPnl) }}>{fmtPnl(uPnl)}</span>)
                     </span>
                   </span>
                 ),
