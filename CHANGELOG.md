@@ -2,6 +2,15 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-21
+
+- **移除 ROE 硬止损**：`monitor_positions.py` 不再监控 ROE 触发市价平仓
+  - 触发原因：5-21 03:02 BSBUSDT 触发 ROE -200% 止损，币安平仓成功（亏 -29.30u）但因 open_log 中两条 BSBUSDT 记录 entry_price=NULL（开仓时未回填），`get_oldest_open_position` 的 `WHERE entry_price IS NOT NULL` 过滤导致 FIFO 匹配不到，**回写失败**——账户与本地 open_log 脱节，Dashboard 仍显示"持仓中"
+  - 回测显示 ROE 止损对长期收益无显著正贡献（原 2026-04-28 灰度上线是 -200% 几乎不触发）
+  - 手工修补：把 id=728 / id=747 两条悬挂记录 close_time 填为 2026-05-21 03:02:11，close_reason='ROE止损'
+  - 代码改动：`monitor_positions.py` 移除 STOPLOSS_*、_do_stoploss、_market_close_one、_in_close_window、check_and_stoploss 等函数；保留持仓快照和报表逻辑
+  - 不再需要的导入：`auth_post`, `is_hedge_mode`, `get_mark_price` 同步移除
+
 ## 2026-05-13（下午-第二轮）
 
 - **真正大头：批量拉价**：`get_mark_price` 单币种调用改为 `get_all_mark_prices` 一次拉全市场
