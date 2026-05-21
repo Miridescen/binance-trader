@@ -2,6 +2,17 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-21（下午）
+
+- **暂停实盘开仓**：`binance-strategy` 服务 systemctl stop + disable，不再开/平实盘
+  - 所有虚拟盘（main / 4h / 8h / 12h）保留运行，作为观察对照
+  - 当前 15 个空单已通过 `scripts/close_all_positions.py --execute` 一次性市价平仓
+  - 平仓时浮盈 -0.97 USDT，close_reason='手工平仓'
+- **新增 scripts/close_all_positions.py**：一次性手工平仓所有实盘持仓
+  - 默认 dry-run，加 --execute 真平
+  - 流程：拉 positionRisk → 市价平仓 → sleep 2s → FIFO 回填 open_log
+  - 兜底：FIFO 找不到匹配（entry_price=NULL 的悬挂记录）时仅标 close_time + reason，避免本地与账户脱节
+
 ## 2026-05-21
 
 - **移除 ROE 硬止损**：`monitor_positions.py` 不再监控 ROE 触发市价平仓
