@@ -89,22 +89,23 @@ function buildGroupColumns(windowLabel) {
   ]
 }
 
-function SideTable({ label, color, rows, columns }) {
+function SideTable({ label, color, rows, columns, windowLabel }) {
   const pnl = rows.reduce((a, r) => a + parseFloat(r.sum_pnl_actual || 0), 0)
   const pnlIfHeld = rows.reduce((a, r) => a + parseFloat(r.sum_pnl_if_held || 0), 0)
-  const diff = pnl - pnlIfHeld
   return (
     <Card
       size="small"
       title={
         <span>
           <Tag color={color}>{label}</Tag>
-          <span style={{ color: pnlColor(pnl), fontWeight: 500, marginLeft: 4 }}>
-            {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} U
+          <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+            实际 <span style={{ color: pnlColor(pnl), fontWeight: 500 }}>
+              {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+            </span>
           </span>
           <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
-            差额 <span style={{ color: pnlColor(diff), fontWeight: 500 }}>
-              {diff >= 0 ? '+' : ''}{diff.toFixed(2)}
+            走完{windowLabel} <span style={{ color: pnlColor(pnlIfHeld), fontWeight: 500 }}>
+              {pnlIfHeld >= 0 ? '+' : ''}{pnlIfHeld.toFixed(2)}
             </span>
           </span>
           <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{rows.length} 组</span>
@@ -186,10 +187,10 @@ export default function VirtualLogWindow({ window = '4h' }) {
                 children: (
                   <Row gutter={[12, 12]}>
                     <Col xs={24} lg={12}>
-                      <SideTable label="有过滤" color={p.tagColor} rows={fRows} columns={columns} />
+                      <SideTable label="有过滤" color={p.tagColor} rows={fRows} columns={columns} windowLabel={window} />
                     </Col>
                     <Col xs={24} lg={12}>
-                      <SideTable label="无过滤" color="default" rows={uRows} columns={columns} />
+                      <SideTable label="无过滤" color="default" rows={uRows} columns={columns} windowLabel={window} />
                     </Col>
                   </Row>
                 ),
