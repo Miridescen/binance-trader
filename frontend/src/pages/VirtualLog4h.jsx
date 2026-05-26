@@ -154,6 +154,10 @@ export default function VirtualLogWindow({ window = '4h' }) {
   const nHitGroups   = groups.filter(g => g.n_hit > 0).length
   const nTimedGroups = groups.filter(g => g.n_timed > 0 && g.n_hit === 0).length
 
+  // 差额：+10u 实际 - 走完 Nh 对照（正=+10u 赚，负=+10u 吃亏）
+  const diffFiltered   = totalActualFiltered   - totalIfHeldFiltered
+  const diffUnfiltered = totalActualUnfiltered - totalIfHeldUnfiltered
+
   return (
     <div>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
@@ -183,6 +187,20 @@ export default function VirtualLogWindow({ window = '4h' }) {
             <Statistic title={`走完${window} · 无过滤`} value={Math.abs(totalIfHeldUnfiltered).toFixed(2)} suffix="U"
               prefix={totalIfHeldUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: totalIfHeldUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title="差额合计 · 有过滤" value={Math.abs(diffFiltered).toFixed(2)} suffix="U"
+              prefix={diffFiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: diffFiltered >= 0 ? '#3f8600' : '#cf1322' }} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card size="small">
+            <Statistic title="差额合计 · 无过滤" value={Math.abs(diffUnfiltered).toFixed(2)} suffix="U"
+              prefix={diffUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              valueStyle={{ color: diffUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={6}>
