@@ -91,6 +91,8 @@ function buildGroupColumns(windowLabel) {
 
 function SideTable({ label, color, rows, columns }) {
   const pnl = rows.reduce((a, r) => a + parseFloat(r.sum_pnl_actual || 0), 0)
+  const pnlIfHeld = rows.reduce((a, r) => a + parseFloat(r.sum_pnl_if_held || 0), 0)
+  const diff = pnl - pnlIfHeld
   return (
     <Card
       size="small"
@@ -99,6 +101,11 @@ function SideTable({ label, color, rows, columns }) {
           <Tag color={color}>{label}</Tag>
           <span style={{ color: pnlColor(pnl), fontWeight: 500, marginLeft: 4 }}>
             {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} U
+          </span>
+          <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
+            差额 <span style={{ color: pnlColor(diff), fontWeight: 500 }}>
+              {diff >= 0 ? '+' : ''}{diff.toFixed(2)}
+            </span>
           </span>
           <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{rows.length} 组</span>
         </span>
@@ -136,79 +143,19 @@ export default function VirtualLogWindow({ window = '4h' }) {
   const sumActualBy = side => groups
     .filter(g => g.side === side)
     .reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
-  const sumIfHeldBy = side => groups
-    .filter(g => g.side === side)
-    .reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
-  const isFilteredSide = s => s?.includes('有过滤')
-  const isUnfilteredSide = s => s?.includes('无过滤')
 
-  // 有过滤 / 无过滤 各自的实际 PnL 和"若都走完 Nh"对照
-  const totalActualFiltered   = groups.filter(g => isFilteredSide(g.side))
-    .reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
-  const totalActualUnfiltered = groups.filter(g => isUnfilteredSide(g.side))
-    .reduce((a, g) => a + parseFloat(g.sum_pnl_actual || 0), 0)
-  const totalIfHeldFiltered   = groups.filter(g => isFilteredSide(g.side))
-    .reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
-  const totalIfHeldUnfiltered = groups.filter(g => isUnfilteredSide(g.side))
-    .reduce((a, g) => a + parseFloat(g.sum_pnl_if_held || 0), 0)
   const nHitGroups   = groups.filter(g => g.n_hit > 0).length
   const nTimedGroups = groups.filter(g => g.n_timed > 0 && g.n_hit === 0).length
-
-  // 差额：+10u 实际 - 走完 Nh 对照（正=+10u 赚，负=+10u 吃亏）
-  const diffFiltered   = totalActualFiltered   - totalIfHeldFiltered
-  const diffUnfiltered = totalActualUnfiltered - totalIfHeldUnfiltered
 
   return (
     <div>
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="总盈亏 · 有过滤" value={Math.abs(totalActualFiltered).toFixed(2)} suffix="U"
-              prefix={totalActualFiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: totalActualFiltered >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="总盈亏 · 无过滤" value={Math.abs(totalActualUnfiltered).toFixed(2)} suffix="U"
-              prefix={totalActualUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: totalActualUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title={`走完${window} · 有过滤`} value={Math.abs(totalIfHeldFiltered).toFixed(2)} suffix="U"
-              prefix={totalIfHeldFiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: totalIfHeldFiltered >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title={`走完${window} · 无过滤`} value={Math.abs(totalIfHeldUnfiltered).toFixed(2)} suffix="U"
-              prefix={totalIfHeldUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: totalIfHeldUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="差额合计 · 有过滤" value={Math.abs(diffFiltered).toFixed(2)} suffix="U"
-              prefix={diffFiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: diffFiltered >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="差额合计 · 无过滤" value={Math.abs(diffUnfiltered).toFixed(2)} suffix="U"
-              prefix={diffUnfiltered >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: diffUnfiltered >= 0 ? '#3f8600' : '#cf1322' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
+        <Col xs={12} sm={12} md={12}>
           <Card size="small">
             <Statistic title="+10u触发组" value={nHitGroups} suffix={`/ ${groups.length}`} />
           </Card>
         </Col>
-        <Col xs={12} sm={8} md={6}>
+        <Col xs={12} sm={12} md={12}>
           <Card size="small">
             <Statistic title={`${window}定平组`} value={nTimedGroups} suffix={`/ ${groups.length}`} />
           </Card>
