@@ -70,33 +70,21 @@ const batchColumns = [
   },
 ]
 
-// ── 实时持仓表的列 ──
+// ── 实时持仓表的列（不带方向列，按 side 已拆分到左右两栏）──
 const positionColumns = [
-  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110 },
-  {
-    title: '方向',
-    dataIndex: 'side',
-    key: 'side',
-    width: 130,
-    render: v => {
-      let color = 'default'
-      if (v?.includes('涨幅') && v?.includes('空')) color = 'green'
-      else if (v?.includes('跌幅') && v?.includes('空')) color = 'cyan'
-      return <Tag color={color}>{v}</Tag>
-    },
-  },
-  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 95,
+  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 100 },
+  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90,
     render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 95,
+  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90,
     render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '数量', dataIndex: 'position_amt', key: 'position_amt', width: 90 },
+  { title: '数量', dataIndex: 'position_amt', key: 'position_amt', width: 80 },
   {
-    title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 85,
+    title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 80,
     render: v => <PnlCell value={v} />,
     sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0),
   },
   {
-    title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80,
+    title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 75,
     render: v => v == null ? '-' : <span style={{ color: pnlColor(v), fontWeight: 500 }}>{v >= 0 ? '+' : ''}{parseFloat(v).toFixed(2)}%</span>,
   },
 ]
@@ -167,6 +155,13 @@ export default function Dashboard() {
   const balance = rt?.balance ?? 0
   const marginUsed = rt?.margin_used ?? 0
   const positions = (rt?.positions || []).map((p, i) => ({ ...p, key: i }))
+  const gainerPositions = positions.filter(p => p.side?.includes('涨幅'))
+  const loserPositions  = positions.filter(p => p.side?.includes('跌幅'))
+  const otherPositions  = positions.filter(p => !p.side?.includes('涨幅') && !p.side?.includes('跌幅'))
+
+  const sumPnl = arr => arr.reduce((a, p) => a + (parseFloat(p.unrealized_pnl) || 0), 0)
+  const gainerPnl = sumPnl(gainerPositions)
+  const loserPnl  = sumPnl(loserPositions)
 
   const gainerBatches = groupBatches(logs, '涨幅榜-空（无过滤）')
   const loserBatches  = groupBatches(logs, '跌幅榜-空（无过滤）')
@@ -205,7 +200,94 @@ export default function Dashboard() {
         </Col>
       </Row>
 
-      {/* 中间：4h 实盘按周期分组对照 */}
+      {/* 第二行：实时持仓（左右拆分） */}
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={
+          <span>
+            实时持仓
+            <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
+              {positions.length} 笔   {updatedRt ? `更新 ${updatedRt}` : '未刷新'}
+            </span>
+          </span>
+        }
+        extra={
+          <Button
+            size="small"
+            type="primary"
+            icon={<ReloadOutlined />}
+            loading={loadingRt}
+            onClick={fetchRealtime}
+          >
+            刷新
+          </Button>
+        }
+      >
+        <Row gutter={[12, 12]}>
+          <Col xs={24} lg={12}>
+            <Card size="small" type="inner" title={
+              <span>
+                <Tag color="green">涨幅榜-空</Tag>
+                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+                  {gainerPositions.length} 笔  浮盈 <PnlCell value={gainerPnl} />
+                </span>
+              </span>
+            }>
+              <Table
+                columns={positionColumns}
+                dataSource={gainerPositions}
+                pagination={false}
+                scroll={{ x: 'max-content' }}
+                size="small"
+                rowClassName={r => {
+                  if (r.unrealized_pnl > 0) return 'row-profit'
+                  if (r.unrealized_pnl < 0) return 'row-loss'
+                  return ''
+                }}
+                locale={{ emptyText: '无' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} lg={12}>
+            <Card size="small" type="inner" title={
+              <span>
+                <Tag color="cyan">跌幅榜-空</Tag>
+                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+                  {loserPositions.length} 笔  浮盈 <PnlCell value={loserPnl} />
+                </span>
+              </span>
+            }>
+              <Table
+                columns={positionColumns}
+                dataSource={loserPositions}
+                pagination={false}
+                scroll={{ x: 'max-content' }}
+                size="small"
+                rowClassName={r => {
+                  if (r.unrealized_pnl > 0) return 'row-profit'
+                  if (r.unrealized_pnl < 0) return 'row-loss'
+                  return ''
+                }}
+                locale={{ emptyText: '无' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+        {otherPositions.length > 0 && (
+          <Card size="small" type="inner" title="其他" style={{ marginTop: 12 }}>
+            <Table
+              columns={positionColumns}
+              dataSource={otherPositions}
+              pagination={false}
+              scroll={{ x: 'max-content' }}
+              size="small"
+            />
+          </Card>
+        )}
+      </Card>
+
+      {/* 第三行：4h 实盘按周期分组对照 */}
       <Spin spinning={loadingLog}>
         <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
           <Col xs={24} lg={12}>
@@ -242,44 +324,6 @@ export default function Dashboard() {
           </Col>
         </Row>
       </Spin>
-
-      {/* 底部：实时持仓 + 手动刷新 */}
-      <Card
-        size="small"
-        title={
-          <span>
-            实时持仓
-            <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
-              {positions.length} 笔   {updatedRt ? `更新 ${updatedRt}` : '未刷新'}
-            </span>
-          </span>
-        }
-        extra={
-          <Button
-            size="small"
-            type="primary"
-            icon={<ReloadOutlined />}
-            loading={loadingRt}
-            onClick={fetchRealtime}
-          >
-            刷新
-          </Button>
-        }
-      >
-        <Table
-          columns={positionColumns}
-          dataSource={positions}
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          size="small"
-          rowClassName={r => {
-            if (r.unrealized_pnl > 0) return 'row-profit'
-            if (r.unrealized_pnl < 0) return 'row-loss'
-            return ''
-          }}
-          locale={{ emptyText: '当前无持仓' }}
-        />
-      </Card>
 
       <style>{`
         .row-profit td { background: #f6ffed !important; }
