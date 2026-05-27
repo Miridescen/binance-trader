@@ -20,7 +20,6 @@ const ACCESS_PASSWORD = 'mu824810056'
 const menuItems = [
   { key: '/',                  icon: <DashboardOutlined />,      label: 'Dashboard' },
   { key: '/openlog',           icon: <UnorderedListOutlined />,  label: '开仓记录' },
-  { key: '/daily-summary',     icon: <BarChartOutlined />,       label: '每日汇总' },
   { key: '/virtuallog',        icon: <ExperimentOutlined />,     label: '模拟盘' },
   { key: '/virtuallog-4h',     icon: <LineChartOutlined />,      label: '4h模拟盘' },
   { key: '/virtuallog-8h',     icon: <LineChartOutlined />,      label: '8h模拟盘' },

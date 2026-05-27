@@ -215,7 +215,31 @@ def virtual_detail_4h_legacy():
 
 @app.route("/api/open_log_4h")
 def open_log_4h():
+    """支持 ?anchor=YYYY-MM-DD HH:MM 按周期过滤；默认返回全部（兼容旧调用）"""
+    anchor = request.args.get("anchor")
+    if anchor:
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM open_log_4h WHERE substr(open_time, 1, 16) = ? ORDER BY id",
+                (anchor[:16],)
+            ).fetchall()
+            rows = [dict(r) for r in rows]
+        return jsonify(_strip_id(rows))
     return jsonify(_strip_id(db.get_open_log_4h_all()))
+
+
+@app.route("/api/open_log_4h/anchors")
+def open_log_4h_anchors():
+    """返回所有有数据的周期 anchor（精确到分钟），倒序，并附该周期的笔数"""
+    with db.get_conn() as conn:
+        rows = conn.execute("""
+            SELECT substr(open_time, 1, 16) AS anchor, COUNT(*) AS n
+            FROM open_log_4h
+            WHERE open_time IS NOT NULL AND open_time != ''
+            GROUP BY anchor
+            ORDER BY anchor DESC
+        """).fetchall()
+        return jsonify([{"anchor": r["anchor"], "n": r["n"]} for r in rows])
 
 
 @app.route("/api/realtime")
