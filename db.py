@@ -257,6 +257,27 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_time ON virtual_detail_12h(time);
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_log_id ON virtual_detail_12h(log_id);
 
+        -- 4h 周期实盘开仓记录（精简版，仅必要字段，全部等成交后回填）
+        CREATE TABLE IF NOT EXISTS open_log_4h (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_time           TEXT,
+            close_time          TEXT,
+            symbol              TEXT,
+            side                TEXT,
+            entry_price         REAL,
+            close_price         REAL,
+            position_amt        REAL,
+            leverage            INTEGER,
+            unrealized_pnl      REAL,
+            roe_pct             REAL,
+            open_commission     REAL,
+            close_commission    REAL,
+            funding_fee         REAL,
+            close_reason        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_open_log_4h_open_time ON open_log_4h(open_time);
+        CREATE INDEX IF NOT EXISTS idx_open_log_4h_symbol ON open_log_4h(symbol);
+
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -620,6 +641,55 @@ def get_virtual_detail_times(date: str) -> list[str]:
             (f"{date}%",)
         ).fetchall()
         return [r["time"] for r in rows]
+
+
+# ── open_log_4h 操作（4h 周期实盘）────────────────────────
+
+def insert_open_log_4h(row: dict) -> int:
+    """开仓 INSERT，返回新行 id（其他字段后续 update 回填）"""
+    with get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO open_log_4h (open_time, close_time, symbol, side, entry_price,
+                close_price, position_amt, leverage, unrealized_pnl, roe_pct,
+                open_commission, close_commission, funding_fee, close_reason)
+            VALUES (:open_time, :close_time, :symbol, :side, :entry_price,
+                :close_price, :position_amt, :leverage, :unrealized_pnl, :roe_pct,
+                :open_commission, :close_commission, :funding_fee, :close_reason)
+        """, row)
+        return cur.lastrowid
+
+
+def update_open_log_4h(row_id: int, fields: dict):
+    """部分字段 update（任意子集）"""
+    if not fields:
+        return
+    cols = ", ".join(f"{k} = :{k}" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE open_log_4h SET {cols} WHERE id = :id",
+                     {**fields, "id": row_id})
+
+
+def get_open_log_4h_unclosed() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM open_log_4h WHERE close_time IS NULL OR close_time = '' ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_open_log_4h_all() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM open_log_4h ORDER BY id").fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_open_log_4h_by_open_time(open_time: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM open_log_4h WHERE open_time LIKE ? ORDER BY id",
+            (f"{open_time[:16]}%",)  # 容差到分钟
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── virtual_log_{4h,8h,12h} / virtual_detail_{4h,8h,12h} 通用操作 ─────────────

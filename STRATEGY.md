@@ -137,7 +137,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `open_top_shorts.py` | 每日定时开仓/平仓策略 |
+| `open_top_shorts.py` | 24h 定时开仓策略（现已 disabled，2026-05-21 起停用） |
+| `real_trade_4h.py` | **4h 周期实盘策略**（独立运行，限价 10min + 市价兜底） |
 | `monitor_positions.py` | 持仓监控（每 2 分钟拍快照 + 整点报表）|
 | `virtual_trade.py` | 主模拟盘（每天 09:00 开 / 08:50 平，对照组 + 模拟空 + 模拟多 + 快照） |
 | `virtual_trade_4h.py` | 4h 周期模拟盘（独立实现） |
@@ -159,7 +160,8 @@ bash start_service.sh
 bash rebuild_frontend.sh
 
 # 单独重启
-systemctl restart binance-strategy    # 开仓策略
+systemctl restart binance-strategy    # 24h 开仓策略（停用中）
+systemctl restart binance-real-4h     # 4h 实盘策略（当前在跑）
 systemctl restart binance-monitor     # 持仓监控
 systemctl restart binance-virtual     # 主模拟盘
 systemctl restart binance-virtual-4h  # 4h 周期模拟盘

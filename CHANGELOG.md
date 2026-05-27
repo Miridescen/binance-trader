@@ -2,6 +2,28 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-05-21（晚）
+
+- **新增 4h 周期实盘策略 (`binance-real-4h`)**：与原 24h 策略并列，独立运行
+  - 6 个开仓周期/天：00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30
+  - 2 个方向：涨幅榜-空（无过滤）+ 跌幅榜-空（无过滤），各 TOP10
+  - 仅过滤 24h 交易量 ≥ 1000 万 USDT，沿用 3x 杠杆 / 10U/单
+  - 全部 4h 定平，没有 +10u 提前止盈
+- **开仓机制**：限价单 + 10 分钟超时市价兜底
+  - XX:30:00 拉两榜 TOP10 → 按标记价挂限价 SELL
+  - XX:32 / 34 / 36 / 38 撤单换价重挂（5 轮限价，跟随最新标记价）
+  - XX:40 仍未成交 → 市价兜底
+- **平仓机制**：提前 10 分钟限价平仓 + 市价兜底
+  - XX:20:00 对所有持仓挂限价 BUY (reduceOnly)
+  - XX:22 / 24 / 26 / 28 撤单换价重挂
+  - XX:29 强制市价兜底，确保 XX:30 前账户清空
+- **数据表 `open_log_4h`**（精简版）：开仓时间、平仓时间、币种、方向、开仓价、平仓价、数量、PnL、ROE、开/平手续费、资金费、close_reason
+  - **所有字段等实际成交后回填**，从 `/fapi/v1/userTrades` 取真实成交均价、`/fapi/v1/income` 取手续费和资金费，保证数据真实性
+  - 不再记 change_pct / btc_pct / market_cap / funding_rate 等信号字段（保持表精简）
+- **资金费收集**：通过 `/fapi/v1/income?incomeType=FUNDING_FEE` 按 symbol + [open_ms, close_ms] 区间累计
+- **systemd 服务**：`binance-real-4h`，`bash start_real_4h.sh` 一键注册
+- **代码**：`real_trade_4h.py` 独立程序，与 `open_top_shorts.py`（原 24h 实盘，当前 disabled）并行
+
 ## 2026-05-21（下午）
 
 - **暂停实盘开仓**：`binance-strategy` 服务 systemctl stop + disable，不再开/平实盘
