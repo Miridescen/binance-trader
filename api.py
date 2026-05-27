@@ -213,6 +213,11 @@ def virtual_detail_4h_legacy():
     return virtual_detail_window()
 
 
+@app.route("/api/open_log_4h")
+def open_log_4h():
+    return jsonify(_strip_id(db.get_open_log_4h_all()))
+
+
 @app.route("/api/realtime")
 def realtime():
     try:
