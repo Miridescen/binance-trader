@@ -265,10 +265,18 @@ def realtime():
         pos_risk = auth_get("/fapi/v2/positionRisk")
         active_risk = [p for p in pos_risk if float(p["positionAmt"]) != 0]
 
-        # 从 open_log 获取最近一条未平仓记录的 side 标记，用于区分涨幅空/跌幅空
+        # 从未平仓记录获取 side 标记，区分涨幅空/跌幅空
+        # 先查 4h 实盘表（当前在跑的策略），再查老 open_log 兜底
         side_map = {}
         try:
             with db.get_conn() as conn:
+                rows4 = conn.execute(
+                    "SELECT symbol, side FROM open_log_4h "
+                    "WHERE close_time IS NULL OR close_time = '' ORDER BY id DESC"
+                ).fetchall()
+                for r in rows4:
+                    if r["symbol"] not in side_map:
+                        side_map[r["symbol"]] = r["side"]
                 rows = conn.execute(
                     "SELECT symbol, side FROM open_log WHERE close_time IS NULL ORDER BY id DESC"
                 ).fetchall()
