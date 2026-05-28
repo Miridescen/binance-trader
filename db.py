@@ -279,7 +279,7 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_open_log_4h_open_time ON open_log_4h(open_time);
         CREATE INDEX IF NOT EXISTS idx_open_log_4h_symbol ON open_log_4h(symbol);
-        CREATE INDEX IF NOT EXISTS idx_open_log_4h_anchor ON open_log_4h(open_anchor);
+        -- idx_open_log_4h_anchor 移到 ALTER 之后建（兼容旧库还没 open_anchor 列）
 
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
