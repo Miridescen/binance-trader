@@ -181,8 +181,9 @@ def place_open_market(symbol: str, info: dict) -> dict | None:
     return None
 
 
-def insert_open_record(symbol: str, side_label: str, order_id: int) -> int | None:
-    """开仓成交后，按 order 实际成交数据 INSERT open_log_4h，返回新行 id。"""
+def insert_open_record(symbol: str, side_label: str, order_id: int, anchor_ts: str) -> int | None:
+    """开仓成交后，按 order 实际成交数据 INSERT open_log_4h，返回新行 id。
+    anchor_ts: 该周期的 :30 整点时刻（如 '2026-05-28 04:30:00'），用于稳定分组。"""
     try:
         order = get_order(symbol, order_id)
     except Exception as e:
@@ -201,6 +202,7 @@ def insert_open_record(symbol: str, side_label: str, order_id: int) -> int | Non
 
     open_time = datetime.fromtimestamp(update_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
     row = {
+        "open_anchor": anchor_ts,
         "open_time": open_time, "close_time": None,
         "symbol": symbol, "side": side_label,
         "entry_price": avg_price, "close_price": None,
@@ -210,7 +212,7 @@ def insert_open_record(symbol: str, side_label: str, order_id: int) -> int | Non
         "funding_fee": None, "close_reason": None,
     }
     new_id = db.insert_open_log_4h(row)
-    log.info(f"  {symbol} INSERT open_log_4h#{new_id}: entry={avg_price} qty={executed} @ {open_time}")
+    log.info(f"  {symbol} INSERT open_log_4h#{new_id}: entry={avg_price} qty={executed} @ {open_time} (anchor {anchor_ts})")
     return new_id
 
 
@@ -272,7 +274,7 @@ def run_open_cycle(anchor: datetime):
             status = order.get("status", "UNKNOWN")
             if status == "FILLED":
                 log.info(f"  {sym} ✅ 已成交")
-                insert_open_record(sym, data["side_label"], data["orderId"])
+                insert_open_record(sym, data["side_label"], data["orderId"], anchor_ts)
                 continue
             if status == "PARTIALLY_FILLED":
                 log.info(f"  {sym} 部分成交，继续等")
@@ -286,7 +288,7 @@ def run_open_cycle(anchor: datetime):
             recheck = get_order(sym, data["orderId"]).get("status")
             if recheck == "FILLED":
                 log.info(f"  {sym} 撤单时已成交")
-                insert_open_record(sym, data["side_label"], data["orderId"])
+                insert_open_record(sym, data["side_label"], data["orderId"], anchor_ts)
                 continue
 
             ref = price_map.get(sym) or 0
@@ -316,7 +318,7 @@ def run_open_cycle(anchor: datetime):
             recheck = get_order(sym, data["orderId"]).get("status")
             if recheck == "FILLED":
                 log.info(f"  {sym} 撤单时已成交")
-                insert_open_record(sym, data["side_label"], data["orderId"])
+                insert_open_record(sym, data["side_label"], data["orderId"], anchor_ts)
                 continue
             if sym in held:
                 log.info(f"  {sym} 已有持仓，跳过市价兜底")
@@ -324,7 +326,7 @@ def run_open_cycle(anchor: datetime):
             res = place_open_market(sym, data["info"])
             if res:
                 time.sleep(1)  # 等市价单成交
-                insert_open_record(sym, data["side_label"], res["orderId"])
+                insert_open_record(sym, data["side_label"], res["orderId"], anchor_ts)
             time.sleep(0.15)
 
     log.info(f"═══ 开仓周期结束 {anchor_ts} ═══\n")

@@ -258,8 +258,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_log_id ON virtual_detail_12h(log_id);
 
         -- 4h 周期实盘开仓记录（精简版，仅必要字段，全部等成交后回填）
+        -- open_anchor 是周期 :30 整点（如 "2026-05-28 04:30:00"），同一批次稳定一致
         CREATE TABLE IF NOT EXISTS open_log_4h (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_anchor         TEXT,
             open_time           TEXT,
             close_time          TEXT,
             symbol              TEXT,
@@ -277,6 +279,7 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_open_log_4h_open_time ON open_log_4h(open_time);
         CREATE INDEX IF NOT EXISTS idx_open_log_4h_symbol ON open_log_4h(symbol);
+        CREATE INDEX IF NOT EXISTS idx_open_log_4h_anchor ON open_log_4h(open_anchor);
 
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
@@ -328,6 +331,11 @@ def init_db():
         # ALTER TABLE 不支持 IF NOT EXISTS，用 try 兼容
         try:
             conn.execute("ALTER TABLE open_log ADD COLUMN close_reason TEXT")
+        except Exception:
+            pass  # 字段已存在
+        try:
+            conn.execute("ALTER TABLE open_log_4h ADD COLUMN open_anchor TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_open_log_4h_anchor ON open_log_4h(open_anchor)")
         except Exception:
             pass  # 字段已存在
 
@@ -647,12 +655,14 @@ def get_virtual_detail_times(date: str) -> list[str]:
 
 def insert_open_log_4h(row: dict) -> int:
     """开仓 INSERT，返回新行 id（其他字段后续 update 回填）"""
+    row = dict(row)
+    row.setdefault("open_anchor", None)
     with get_conn() as conn:
         cur = conn.execute("""
-            INSERT INTO open_log_4h (open_time, close_time, symbol, side, entry_price,
+            INSERT INTO open_log_4h (open_anchor, open_time, close_time, symbol, side, entry_price,
                 close_price, position_amt, leverage, unrealized_pnl, roe_pct,
                 open_commission, close_commission, funding_fee, close_reason)
-            VALUES (:open_time, :close_time, :symbol, :side, :entry_price,
+            VALUES (:open_anchor, :open_time, :close_time, :symbol, :side, :entry_price,
                 :close_price, :position_amt, :leverage, :unrealized_pnl, :roe_pct,
                 :open_commission, :close_commission, :funding_fee, :close_reason)
         """, row)

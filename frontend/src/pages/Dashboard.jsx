@@ -89,12 +89,13 @@ const positionColumns = [
   },
 ]
 
-// 把 open_log_4h 按 (open_time, side) 分组，聚合成 batch
+// 按 (open_anchor, side) 分组聚合成 batch（open_anchor 是周期 :30 整点，稳定）
 function groupBatches(rows, sideFilter) {
   const filtered = rows.filter(r => r.side === sideFilter)
   const map = new Map()
   for (const r of filtered) {
-    const k = r.open_time?.slice(0, 16) || ''
+    // 优先 open_anchor，fallback open_time（兼容回填前的老数据）
+    const k = (r.open_anchor || r.open_time || '').slice(0, 16)
     if (!map.has(k)) map.set(k, [])
     map.get(k).push(r)
   }
