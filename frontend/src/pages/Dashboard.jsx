@@ -132,26 +132,23 @@ export default function Dashboard() {
   const [loadingLog, setLoadingLog] = useState(true)
   const [updatedRt, setUpdatedRt] = useState(null)
 
-  // 实盘记录只在挂载时拉
-  useEffect(() => {
-    axios.get('/api/open_log_4h')
-      .then(res => setLogs(res.data || []))
-      .finally(() => setLoadingLog(false))
-  }, [])
-
-  // 实时数据手动刷新（首次也手动？不，首次自动一次，之后手动）
-  const fetchRealtime = async () => {
+  // 一键刷新所有数据：账户/持仓 + 4h 实盘记录
+  const fetchAll = async () => {
     setLoadingRt(true)
+    setLoadingLog(true)
     try {
-      const res = await axios.get('/api/realtime')
-      if (!res.data.error) {
-        setRt(res.data)
-        setUpdatedRt(new Date().toLocaleTimeString())
-      }
+      const [r1, r2] = await Promise.all([
+        axios.get('/api/realtime'),
+        axios.get('/api/open_log_4h'),
+      ])
+      if (!r1.data.error) setRt(r1.data)
+      setLogs(r2.data || [])
+      setUpdatedRt(new Date().toLocaleTimeString())
     } catch (e) {}
     setLoadingRt(false)
+    setLoadingLog(false)
   }
-  useEffect(() => { fetchRealtime() }, [])
+  useEffect(() => { fetchAll() }, [])
 
   const balance = rt?.balance ?? 0
   const marginUsed = rt?.margin_used ?? 0
@@ -185,6 +182,26 @@ export default function Dashboard() {
 
   return (
     <div>
+      {/* 顶部刷新栏（粘性，滚到哪都能点） */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 10,
+        background: '#f0f2f5', padding: '8px 0', marginBottom: 8,
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12,
+      }}>
+        <span style={{ color: '#666', fontSize: 13 }}>
+          {updatedRt ? `更新于 ${updatedRt}` : '未刷新'}
+        </span>
+        <Button
+          type="primary"
+          size="large"
+          icon={<ReloadOutlined />}
+          loading={loadingRt || loadingLog}
+          onClick={fetchAll}
+        >
+          刷新全部
+        </Button>
+      </div>
+
       {/* 顶部：账户卡 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={12} md={12}>
@@ -209,20 +226,9 @@ export default function Dashboard() {
           <span>
             实时持仓
             <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
-              {positions.length} 笔   {updatedRt ? `更新 ${updatedRt}` : '未刷新'}
+              {positions.length} 笔
             </span>
           </span>
-        }
-        extra={
-          <Button
-            size="small"
-            type="primary"
-            icon={<ReloadOutlined />}
-            loading={loadingRt}
-            onClick={fetchRealtime}
-          >
-            刷新
-          </Button>
         }
       >
         <Row gutter={[12, 12]}>
