@@ -43,6 +43,23 @@ FAPI_BASE = "https://fapi.binance.com"
 SPOT_BASE = "https://api.binance.com"
 HTTP_TIMEOUT = 10
 
+# ── 告警配置 ──
+ALERT_THRESHOLD = 8.0          # 年化基差 ≥ 8% 触发告警
+ALERT_COOLDOWN_SEC = 6 * 3600  # 同一合约两次告警间隔 ≥ 6 小时（防刷屏）
+
+# 复用主项目 Server酱推送（仅 import 一个纯函数，不引入其他依赖）
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from notify import send_wechat
+    _NOTIFY_OK = True
+except Exception as _e:
+    _NOTIFY_OK = False
+    def send_wechat(title, content):  # noqa: 占位
+        log.warning(f"notify 不可用，跳过推送：{title}")
+
+# 记录每个合约最近一次告警时间（epoch 秒）；进程内存，重启清零
+_last_alert: dict[str, float] = {}
+
 
 def _http_get(url, params=None):
     resp = requests.get(url, params=params or {}, timeout=HTTP_TIMEOUT)
@@ -140,6 +157,49 @@ def take_snapshot():
         db.insert_snapshots(rows)
     log.info(f"快照 {len(rows)} 条 已写入 {db.DB_PATH}")
 
+    # 告警检查
+    check_alerts(rows)
+
+
+def check_alerts(rows: list[dict]):
+    """年化基差 ≥ ALERT_THRESHOLD 时推送（带冷却，避免刷屏）"""
+    hits = [r for r in rows if abs(r["annualized_pct"]) >= ALERT_THRESHOLD]
+    if not hits:
+        return
+
+    now_epoch = time.time()
+    to_alert = []
+    for r in hits:
+        sym = r["contract_symbol"]
+        last = _last_alert.get(sym, 0)
+        if now_epoch - last >= ALERT_COOLDOWN_SEC:
+            to_alert.append(r)
+            _last_alert[sym] = now_epoch
+        else:
+            mins = int((ALERT_COOLDOWN_SEC - (now_epoch - last)) / 60)
+            log.info(f"  {sym} 年化 {r['annualized_pct']:+.2f}% 达阈值但在冷却中（剩 {mins} 分钟）")
+
+    if not to_alert:
+        return
+
+    sign = lambda v: f"{v:+.2f}"
+    title = f"⚡基差套利机会 {to_alert[0]['pair']} 年化{to_alert[0]['annualized_pct']:+.1f}%"
+    lines = [f"## 基差年化 ≥ {ALERT_THRESHOLD}% 告警\n"]
+    lines.append("| 合约 | 现货 | 合约 | 基差% | 年化 | 剩余 |")
+    lines.append("|------|------|------|-------|------|------|")
+    for r in to_alert:
+        lines.append(
+            f"| {r['contract_symbol']} | {r['spot_price']:.2f} | {r['futures_price']:.2f} "
+            f"| {sign(r['basis_pct'])}% | **{sign(r['annualized_pct'])}%** | {r['days_to_expiry']:.0f}d |"
+        )
+    lines.append(f"\n采集时间：{rows[0]['time']}")
+    lines.append(f"\n> 现货买入 + 季度合约做空，锁定年化收益。建议核对盘口流动性后下单。")
+    try:
+        send_wechat(title, "\n".join(lines))
+        log.info(f"  ⚡ 已推送告警：{len(to_alert)} 个合约达阈值")
+    except Exception as e:
+        log.warning(f"  推送告警失败：{e}")
+
 
 def main():
     db.init_db()
@@ -148,6 +208,8 @@ def main():
     log.info(f"  采集频率：{INTERVAL_SEC}s ({INTERVAL_SEC // 60} 分钟)")
     log.info(f"  目标币种：{PAIRS}")
     log.info(f"  数据库：  {db.DB_PATH}")
+    log.info(f"  告警阈值：年化 ≥ {ALERT_THRESHOLD}%  冷却 {ALERT_COOLDOWN_SEC // 3600}h"
+             f"  推送={'可用' if _NOTIFY_OK else '不可用'}")
     log.info("=" * 60)
 
     # 立即来一次
