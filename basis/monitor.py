@@ -269,7 +269,8 @@ def main():
     log.info("=" * 60)
     log.info("基差监控启动 (Phase 1 数据采集)")
     log.info(f"  采集频率：{INTERVAL_SEC}s ({INTERVAL_SEC // 60} 分钟)")
-    log.info(f"  目标币种：{PAIRS}")
+    log.info(f"  U本位：   {UM_PAIRS}")
+    log.info(f"  币本位：   {[b + 'USD' for b in CM_BASES]}")
     log.info(f"  数据库：  {db.DB_PATH}")
     log.info(f"  告警阈值：年化 ≥ {ALERT_THRESHOLD}%  冷却 {ALERT_COOLDOWN_SEC // 3600}h"
              f"  推送={'可用' if _NOTIFY_OK else '不可用'}")
