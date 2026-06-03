@@ -17,6 +17,8 @@ function pct(v, digits = 2) {
 }
 
 const contractTypeLabel = t => t === 'CURRENT_QUARTER' ? '当季' : (t === 'NEXT_QUARTER' ? '次季' : t)
+const marketLabel = m => m === 'CM' ? '币本位' : 'U本位'
+const marketColor = m => m === 'CM' ? 'purple' : 'geekblue'
 
 // ── 简易 SVG 折线图 ──
 function MiniLineChart({ data, valueKey, height = 240, color = '#1677ff', yLabel = '' }) {
@@ -146,6 +148,13 @@ export default function BasisDashboard() {
     return m
   }, [stats])
 
+  const [marketFilter, setMarketFilter] = useState('all') // all | UM | CM
+  const shownLatest = useMemo(() => {
+    let list = marketFilter === 'all' ? latest : latest.filter(r => r.market === marketFilter)
+    // 按年化基差从高到低排序，机会大的排前面
+    return [...list].sort((a, b) => (b.annualized_pct ?? 0) - (a.annualized_pct ?? 0))
+  }, [latest, marketFilter])
+
   return (
     <div>
       {/* 顶部刷新栏 */}
@@ -163,25 +172,44 @@ export default function BasisDashboard() {
         </Button>
       </div>
 
-      {/* 4 张卡：每个合约的最新快照 */}
+      {/* 市场筛选 */}
+      <div style={{ marginBottom: 12 }}>
+        <Select
+          size="small"
+          style={{ minWidth: 160 }}
+          value={marketFilter}
+          onChange={setMarketFilter}
+          options={[
+            { label: `全部 (${latest.length})`, value: 'all' },
+            { label: `U本位 (${latest.filter(r => r.market === 'UM').length})`, value: 'UM' },
+            { label: `币本位 (${latest.filter(r => r.market === 'CM').length})`, value: 'CM' },
+          ]}
+        />
+        <span style={{ color: '#999', fontSize: 12, marginLeft: 12 }}>按年化基差从高到低排列</span>
+      </div>
+
+      {/* 每个合约的最新快照卡片 */}
       <Spin spinning={loading}>
         {latest.length === 0 ? (
           <Empty description="basis_snapshot 表暂无数据（服务可能刚启动）" style={{ padding: 60 }} />
         ) : (
           <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-            {latest.map(r => {
+            {shownLatest.map(r => {
               const stat = statsMap[r.contract_symbol]
-              const color = r.pair === 'BTCUSDT' ? 'gold' : 'blue'
+              const baseColors = { BTC: 'gold', ETH: 'blue', BNB: 'orange', SOL: 'purple', XRP: 'cyan' }
+              const base = (r.pair || '').replace(/USDT?$/, '')
+              const color = baseColors[base] || 'default'
               return (
                 <Col xs={24} sm={12} md={12} lg={6} key={r.contract_symbol}>
                   <Card
                     size="small"
                     title={
                       <span>
+                        <Tag color={marketColor(r.market)} style={{ marginInlineEnd: 4 }}>{marketLabel(r.market)}</Tag>
                         <Tag color={color}>{r.pair}</Tag>
                         <Tag>{contractTypeLabel(r.contract_type)}</Tag>
                         <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-                          剩 {r.days_to_expiry?.toFixed(1)}d → {r.expiry_date}
+                          剩 {r.days_to_expiry?.toFixed(1)}d
                         </span>
                       </span>
                     }

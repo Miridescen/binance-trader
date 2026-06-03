@@ -36,10 +36,15 @@ log = logging.getLogger("basis-monitor")
 
 
 # ── 配置 ──
-PAIRS = ["BTCUSDT", "ETHUSDT"]
+# U本位（USDT 计价）只有 BTC/ETH 有季度合约
+UM_PAIRS = ["BTCUSDT", "ETHUSDT"]
+# 币本位（USD 本位）季度合约涉及的标的；现货用对应的 USDT 交易对近似
+CM_BASES = ["BTC", "ETH", "BNB", "SOL", "XRP"]   # 现货取 {base}USDT
+
 INTERVAL_SEC = 15 * 60   # 15 分钟
 
-FAPI_BASE = "https://fapi.binance.com"
+FAPI_BASE = "https://fapi.binance.com"    # U本位
+DAPI_BASE = "https://dapi.binance.com"    # 币本位
 SPOT_BASE = "https://api.binance.com"
 HTTP_TIMEOUT = 10
 
@@ -67,33 +72,68 @@ def _http_get(url, params=None):
     return resp.json()
 
 
-def get_quarterly_contracts() -> list[dict]:
-    """拉当前 U本位的所有 CURRENT_QUARTER + NEXT_QUARTER，过滤目标 pair"""
+def get_um_contracts() -> list[dict]:
+    """U本位季度合约（CURRENT_QUARTER + NEXT_QUARTER），过滤目标 pair"""
     data = _http_get(f"{FAPI_BASE}/fapi/v1/exchangeInfo")
     out = []
     for s in data.get("symbols", []):
         if (s.get("status") == "TRADING"
             and s.get("contractType") in ("CURRENT_QUARTER", "NEXT_QUARTER")
-            and s.get("pair") in PAIRS):
+            and s.get("pair") in UM_PAIRS):
             out.append({
+                "market":        "UM",
                 "symbol":        s["symbol"],
                 "pair":          s["pair"],
+                "spot_symbol":   s["pair"],            # BTCUSDT 即现货
                 "contract_type": s["contractType"],
                 "delivery_ms":   int(s.get("deliveryDate", 0)),
             })
     return out
 
 
-def get_spot_ticker(pair: str) -> tuple[float, float]:
-    """返回 (lastPrice, quoteVolume_24h)"""
-    data = _http_get(f"{SPOT_BASE}/api/v3/ticker/24hr", {"symbol": pair})
+def get_cm_contracts() -> list[dict]:
+    """币本位季度合约（CURRENT_QUARTER + NEXT_QUARTER），过滤目标标的"""
+    data = _http_get(f"{DAPI_BASE}/dapi/v1/exchangeInfo")
+    targets = {f"{b}USD" for b in CM_BASES}
+    out = []
+    for s in data.get("symbols", []):
+        if (s.get("contractStatus") == "TRADING"
+            and s.get("contractType") in ("CURRENT_QUARTER", "NEXT_QUARTER")
+            and s.get("pair") in targets):
+            base = s["pair"].replace("USD", "")
+            out.append({
+                "market":        "CM",
+                "symbol":        s["symbol"],
+                "pair":          s["pair"],            # BTCUSD
+                "spot_symbol":   f"{base}USDT",        # 现货用 BTCUSDT 近似
+                "contract_type": s["contractType"],
+                "delivery_ms":   int(s.get("deliveryDate", 0)),
+            })
+    return out
+
+
+def get_spot_ticker(symbol: str) -> tuple[float, float]:
+    """返回 (lastPrice, quoteVolume_24h USDT)"""
+    data = _http_get(f"{SPOT_BASE}/api/v3/ticker/24hr", {"symbol": symbol})
     return float(data["lastPrice"]), float(data["quoteVolume"])
 
 
-def get_futures_ticker(symbol: str) -> tuple[float, float]:
-    """返回 (lastPrice, quoteVolume_24h)"""
-    data = _http_get(f"{FAPI_BASE}/fapi/v1/ticker/24hr", {"symbol": symbol})
-    return float(data["lastPrice"]), float(data["quoteVolume"])
+def get_um_ticker_all() -> dict:
+    """一次拉所有 U本位 ticker，返回 {symbol: (price, quoteVol)}"""
+    data = _http_get(f"{FAPI_BASE}/fapi/v1/ticker/24hr")
+    return {t["symbol"]: (float(t["lastPrice"]), float(t.get("quoteVolume", 0))) for t in data}
+
+
+def get_cm_ticker_all() -> dict:
+    """一次拉所有币本位 ticker，返回 {symbol: (price, usd_vol)}
+       币本位无 quoteVolume，用 baseVolume × price 估算 USD 成交额"""
+    data = _http_get(f"{DAPI_BASE}/dapi/v1/ticker/24hr")
+    out = {}
+    for t in data:
+        price = float(t["lastPrice"])
+        base_vol = float(t.get("baseVolume", 0))
+        out[t["symbol"]] = (price, base_vol * price)
+    return out
 
 
 def take_snapshot():
@@ -101,31 +141,54 @@ def take_snapshot():
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
     log.info("─" * 60)
 
+    # 合约列表
+    contracts = []
     try:
-        contracts = get_quarterly_contracts()
+        contracts += get_um_contracts()
     except Exception as e:
-        log.error(f"拉合约列表失败：{e}")
+        log.error(f"拉 U本位合约失败：{e}")
+    try:
+        contracts += get_cm_contracts()
+    except Exception as e:
+        log.error(f"拉币本位合约失败：{e}")
+    if not contracts:
+        log.error("无合约可采集")
         return
-    log.info(f"目标合约 {len(contracts)} 个")
+    log.info(f"目标合约 {len(contracts)} 个（UM {sum(1 for c in contracts if c['market']=='UM')} + CM {sum(1 for c in contracts if c['market']=='CM')}）")
 
-    # 拉每个 pair 的现货
+    # 批量拉合约 ticker
+    try:
+        um_tk = get_um_ticker_all()
+    except Exception as e:
+        log.warning(f"U本位 ticker 失败：{e}")
+        um_tk = {}
+    try:
+        cm_tk = get_cm_ticker_all()
+    except Exception as e:
+        log.warning(f"币本位 ticker 失败：{e}")
+        cm_tk = {}
+
+    # 现货（去重）
+    spot_syms = {c["spot_symbol"] for c in contracts}
     spot_cache: dict[str, tuple[float, float]] = {}
-    for pair in PAIRS:
+    for sym in spot_syms:
         try:
-            spot_cache[pair] = get_spot_ticker(pair)
+            spot_cache[sym] = get_spot_ticker(sym)
         except Exception as e:
-            log.warning(f"  现货 {pair} 失败：{e}")
+            log.warning(f"  现货 {sym} 失败：{e}")
 
     rows = []
     for c in contracts:
-        if c["pair"] not in spot_cache:
+        spot = spot_cache.get(c["spot_symbol"])
+        if not spot:
             continue
-        try:
-            f_price, f_vol = get_futures_ticker(c["symbol"])
-        except Exception as e:
-            log.warning(f"  合约 {c['symbol']} 失败：{e}")
+        tk = um_tk if c["market"] == "UM" else cm_tk
+        fut = tk.get(c["symbol"])
+        if not fut:
+            log.warning(f"  合约 {c['symbol']} 无 ticker，跳过")
             continue
-        s_price, s_vol = spot_cache[c["pair"]]
+        s_price, s_vol = spot
+        f_price, f_vol = fut
         basis = f_price - s_price
         basis_pct = basis / s_price * 100 if s_price else 0
         expiry_dt = datetime.fromtimestamp(c["delivery_ms"] / 1000, tz=timezone.utc)
@@ -134,30 +197,30 @@ def take_snapshot():
 
         rows.append({
             "time":            ts,
+            "market":          c["market"],
             "pair":            c["pair"],
+            "spot_symbol":     c["spot_symbol"],
             "contract_type":   c["contract_type"],
             "contract_symbol": c["symbol"],
             "expiry_date":     expiry_dt.strftime("%Y-%m-%d"),
             "days_to_expiry":  round(days, 3),
             "spot_price":      s_price,
             "futures_price":   f_price,
-            "basis":           round(basis, 4),
+            "basis":           round(basis, 6),
             "basis_pct":       round(basis_pct, 4),
             "annualized_pct":  round(annualized, 3),
             "spot_vol_24h":    round(s_vol, 2),
             "fut_vol_24h":     round(f_vol, 2),
         })
         log.info(
-            f"  {c['symbol']:<22} 现 {s_price:>10.2f}  合 {f_price:>10.2f}  "
-            f"基 {basis:>+9.2f} ({basis_pct:>+6.3f}%)  年化 {annualized:>+6.2f}%  "
-            f"剩 {days:>5.1f}d"
+            f"  [{c['market']}] {c['symbol']:<18} 现 {s_price:>10.4f}  合 {f_price:>10.4f}  "
+            f"基% {basis_pct:>+6.3f}  年化 {annualized:>+6.2f}%  剩 {days:>5.1f}d"
         )
 
     if rows:
         db.insert_snapshots(rows)
     log.info(f"快照 {len(rows)} 条 已写入 {db.DB_PATH}")
 
-    # 告警检查
     check_alerts(rows)
 
 
