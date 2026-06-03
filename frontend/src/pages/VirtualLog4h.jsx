@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Table, Card, Tag, Spin, Row, Col, Statistic, Tabs } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Table, Card, Tag, Spin, Row, Col, Statistic, Tabs, Select, Space } from 'antd'
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import axios from 'axios'
 
@@ -130,16 +130,33 @@ function SideTable({ label, color, rows, columns, windowLabel }) {
 }
 
 export default function VirtualLogWindow({ window = '4h' }) {
-  const [groups, setGroups] = useState([])
+  const [allGroups, setAllGroups] = useState([])
   const [loading, setLoading] = useState(true)
+  const [timeFilter, setTimeFilter] = useState('all')
   const columns = buildGroupColumns(window)
 
   useEffect(() => {
     setLoading(true)
+    setTimeFilter('all')
     axios.get(`/api/virtual_groups?window=${window}`)
-      .then(res => setGroups(res.data.map((g, i) => ({ ...g, key: i }))))
+      .then(res => setAllGroups(res.data.map((g, i) => ({ ...g, key: i }))))
       .finally(() => setLoading(false))
   }, [window])
+
+  // 所有出现过的开仓时段（HH:MM）
+  const allTimeOptions = useMemo(() => {
+    const set = new Set()
+    for (const g of allGroups) {
+      if (g.open_time) set.add(g.open_time.slice(11, 16))
+    }
+    return [...set].sort()
+  }, [allGroups])
+
+  // 按时段过滤
+  const groups = useMemo(() => {
+    if (timeFilter === 'all') return allGroups
+    return allGroups.filter(g => g.open_time?.slice(11, 16) === timeFilter)
+  }, [allGroups, timeFilter])
 
   const sumActualBy = side => groups
     .filter(g => g.side === side)
@@ -150,6 +167,25 @@ export default function VirtualLogWindow({ window = '4h' }) {
 
   return (
     <div>
+      <div style={{ marginBottom: 12 }}>
+        <Space wrap>
+          <span style={{ color: '#666' }}>按时段筛选：</span>
+          <Select
+            size="small"
+            style={{ minWidth: 140 }}
+            value={timeFilter}
+            onChange={setTimeFilter}
+            options={[
+              { label: '全部时段', value: 'all' },
+              ...allTimeOptions.map(t => ({ label: t, value: t })),
+            ]}
+          />
+          {timeFilter !== 'all' && (
+            <Tag color="blue">仅看 {timeFilter} 周期</Tag>
+          )}
+        </Space>
+      </div>
+
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={12} md={12}>
           <Card size="small">
