@@ -30,3 +30,6 @@ trader.db-wal
 
 # macOS
 .DS_Store
+basis/basis.db
+basis/basis.db-shm
+basis/basis.db-wal

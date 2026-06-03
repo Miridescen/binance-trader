@@ -2,6 +2,20 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-06-03
+
+- **新增 `basis/` 子项目（基差套利 Phase 1：数据采集）**
+  - 完全独立于主项目流程，不污染 trader.db / open_top_shorts / real_trade_4h
+  - 独立 SQLite 数据库 `basis/basis.db`（永久保留所有快照）
+  - `basis/monitor.py`：每 15 分钟拉一次 BTC/ETH 现货 + 当季/次季合约价
+    - 当前监控 4 个合约：BTCUSDT_260626 / BTCUSDT_260925 / ETHUSDT_260626 / ETHUSDT_260925
+    - 计算 basis / basis_pct / annualized_pct
+  - `basis/db.py`：独立 db 模块；basis_snapshot 表
+  - `basis/start_basis.sh`：注册 systemd 服务 `binance-basis-monitor`
+  - 共享：服务器 Python 环境、git 仓库、systemd（资源消耗近零）
+  - 隔离：数据库文件、代码目录、日志、服务
+  - 下一步：跑 1-2 周累积数据，看真实年化基差水平，再决定 Phase 2（回测）
+
 ## 2026-05-21（晚）
 
 - **新增 4h 周期实盘策略 (`binance-real-4h`)**：与原 24h 策略并列，独立运行
