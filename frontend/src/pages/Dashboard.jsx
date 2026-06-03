@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, Spin, Button } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, Select, Space } from 'antd'
 import { ReloadOutlined, WalletOutlined, DollarOutlined } from '@ant-design/icons'
 import axios from 'axios'
 
@@ -131,6 +131,7 @@ export default function Dashboard() {
   const [loadingRt, setLoadingRt] = useState(false)
   const [loadingLog, setLoadingLog] = useState(true)
   const [updatedRt, setUpdatedRt] = useState(null)
+  const [timeFilter, setTimeFilter] = useState('all') // 'all' | 'HH:MM'
 
   // 一键刷新所有数据：账户/持仓 + 4h 实盘记录
   const fetchAll = async () => {
@@ -161,8 +162,20 @@ export default function Dashboard() {
   const gainerPnl = sumPnl(gainerPositions)
   const loserPnl  = sumPnl(loserPositions)
 
-  const gainerBatches = groupBatches(logs, '涨幅榜-空（无过滤）')
-  const loserBatches  = groupBatches(logs, '跌幅榜-空（无过滤）')
+  const allGainerBatches = useMemo(() => groupBatches(logs, '涨幅榜-空（无过滤）'), [logs])
+  const allLoserBatches  = useMemo(() => groupBatches(logs, '跌幅榜-空（无过滤）'), [logs])
+
+  // 该方向出现过的所有时段，按字典序排序
+  const allTimeOptions = useMemo(() => {
+    const set = new Set()
+    for (const b of allGainerBatches) set.add(b.open_time_key.slice(11, 16))
+    for (const b of allLoserBatches)  set.add(b.open_time_key.slice(11, 16))
+    return [...set].sort()
+  }, [allGainerBatches, allLoserBatches])
+
+  const matchTime = b => timeFilter === 'all' || b.open_time_key.slice(11, 16) === timeFilter
+  const gainerBatches = allGainerBatches.filter(matchTime)
+  const loserBatches  = allLoserBatches.filter(matchTime)
 
   const sum = arr => arr.reduce((a, b) => a + b, 0)
   const gNet = sum(gainerBatches.map(b => b.net_pnl))
@@ -296,6 +309,24 @@ export default function Dashboard() {
 
       {/* 第三行：4h 实盘按周期分组对照 */}
       <Spin spinning={loadingLog}>
+        <div style={{ marginBottom: 12 }}>
+          <Space wrap>
+            <span style={{ color: '#666' }}>按时段筛选：</span>
+            <Select
+              size="small"
+              style={{ minWidth: 140 }}
+              value={timeFilter}
+              onChange={setTimeFilter}
+              options={[
+                { label: '全部时段', value: 'all' },
+                ...allTimeOptions.map(t => ({ label: t, value: t })),
+              ]}
+            />
+            {timeFilter !== 'all' && (
+              <Tag color="blue">仅看 {timeFilter} 周期</Tag>
+            )}
+          </Space>
+        </div>
         <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
           <Col xs={24} lg={12}>
             <Card size="small" title={batchTitle('涨幅榜-空', 'green', gainerBatches, gNet)}>
