@@ -83,7 +83,7 @@ export default function OpenLog() {
 
   // 拉周期下拉
   useEffect(() => {
-    axios.get('/api/open_log_4h/anchors')
+    axios.get('/api/open_log_8h/anchors')
       .then(res => {
         setAnchors(res.data || [])
         if (res.data && res.data.length > 0) {
@@ -100,7 +100,7 @@ export default function OpenLog() {
       return
     }
     setLoadingRows(true)
-    axios.get(`/api/open_log_4h?anchor=${encodeURIComponent(selected)}`)
+    axios.get(`/api/open_log_8h?anchor=${encodeURIComponent(selected)}`)
       .then(res => setRows((res.data || []).map((r, i) => ({ ...r, key: i }))))
       .finally(() => setLoadingRows(false))
   }, [selected])
@@ -162,7 +162,7 @@ export default function OpenLog() {
               if (pnl < 0) return 'row-loss'
               return ''
             }}
-            locale={{ emptyText: anchors.length === 0 ? '暂无任何 4h 周期开仓数据' : '该周期暂无数据' }}
+            locale={{ emptyText: anchors.length === 0 ? '暂无任何 8h 周期开仓数据' : '该周期暂无数据' }}
           />
         </Spin>
       </Card>
