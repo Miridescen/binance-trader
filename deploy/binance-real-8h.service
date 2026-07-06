@@ -1,0 +1,21 @@
+[Unit]
+Description=8h 周期实盘策略（跌幅榜-空 无过滤，batch 隔离，组内 +10U 提前平 / 否则跑满 8h）
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/binance-trader
+# ★ 实盘开关：设为 1 才真正下单。删掉/改 0 则为观察模式（只选币/打印/算浮盈，不下单不写库）
+Environment=REAL_8H_LIVE=1
+ExecStart=/usr/bin/python3 /root/binance-trader/real_trade_8h.py
+Restart=always
+RestartSec=30
+StartLimitIntervalSec=0
+
+StandardOutput=append:/root/binance-trader/logs/binance-real-8h.log
+StandardError=append:/root/binance-trader/logs/binance-real-8h.log
+
+[Install]
+WantedBy=multi-user.target

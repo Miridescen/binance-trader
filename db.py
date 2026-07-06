@@ -281,6 +281,30 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_open_log_4h_symbol ON open_log_4h(symbol);
         -- idx_open_log_4h_anchor 移到 ALTER 之后建（兼容旧库还没 open_anchor 列）
 
+        -- 8h 周期实盘开仓记录（结构同 open_log_4h）
+        -- batch = (open_anchor, side)：同一时刻同一方向开的一组仓位，独立算浮盈/独立 +10u 触发
+        CREATE TABLE IF NOT EXISTS open_log_8h (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_anchor         TEXT,
+            open_time           TEXT,
+            close_time          TEXT,
+            symbol              TEXT,
+            side                TEXT,
+            entry_price         REAL,
+            close_price         REAL,
+            position_amt        REAL,
+            leverage            INTEGER,
+            unrealized_pnl      REAL,
+            roe_pct             REAL,
+            open_commission     REAL,
+            close_commission    REAL,
+            funding_fee         REAL,
+            close_reason        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_open_log_8h_open_time ON open_log_8h(open_time);
+        CREATE INDEX IF NOT EXISTS idx_open_log_8h_anchor ON open_log_8h(open_anchor);
+        CREATE INDEX IF NOT EXISTS idx_open_log_8h_symbol ON open_log_8h(symbol);
+
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -698,6 +722,69 @@ def get_open_log_4h_by_open_time(open_time: str) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM open_log_4h WHERE open_time LIKE ? ORDER BY id",
             (f"{open_time[:16]}%",)  # 容差到分钟
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── open_log_8h 操作（8h 周期实盘，batch 隔离）──────────────
+
+def insert_open_log_8h(row: dict) -> int:
+    """开仓 INSERT，返回新行 id（其他字段后续 update 回填）"""
+    row = dict(row)
+    row.setdefault("open_anchor", None)
+    with get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO open_log_8h (open_anchor, open_time, close_time, symbol, side, entry_price,
+                close_price, position_amt, leverage, unrealized_pnl, roe_pct,
+                open_commission, close_commission, funding_fee, close_reason)
+            VALUES (:open_anchor, :open_time, :close_time, :symbol, :side, :entry_price,
+                :close_price, :position_amt, :leverage, :unrealized_pnl, :roe_pct,
+                :open_commission, :close_commission, :funding_fee, :close_reason)
+        """, row)
+        return cur.lastrowid
+
+
+def update_open_log_8h(row_id: int, fields: dict):
+    if not fields:
+        return
+    cols = ", ".join(f"{k} = :{k}" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE open_log_8h SET {cols} WHERE id = :id",
+                     {**fields, "id": row_id})
+
+
+def get_open_log_8h_unclosed() -> list[dict]:
+    """所有未平仓行（close_time 为空）。按 (open_anchor, side) 分组即为各 batch。"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM open_log_8h WHERE close_time IS NULL OR close_time = '' ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_open_log_8h_all() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM open_log_8h ORDER BY id").fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_open_log_8h_by_anchor_side(anchor_ts: str, side: str) -> list[dict]:
+    """某个 batch（open_anchor + side）的所有行，容差到分钟。"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM open_log_8h WHERE open_anchor LIKE ? AND side = ? ORDER BY id",
+            (f"{anchor_ts[:16]}%", side)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_open_log_8h_pending_writeback() -> list[dict]:
+    """已下平仓单（close_time 已置）但真实数值还没回填（unrealized_pnl 为空）的行，
+    用于回填重试（userTrades 结算有延迟时）。"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM open_log_8h WHERE close_time IS NOT NULL AND close_time != '' "
+            "AND unrealized_pnl IS NULL ORDER BY id"
         ).fetchall()
         return [dict(r) for r in rows]
 

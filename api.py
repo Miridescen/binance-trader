@@ -319,6 +319,21 @@ def open_log_4h_anchors():
         return jsonify([{"anchor": r["anchor"], "n": r["n"]} for r in rows])
 
 
+@app.route("/api/open_log_8h")
+def open_log_8h():
+    """8h 周期实盘开仓记录。支持 ?anchor=YYYY-MM-DD HH:MM 过滤；默认返回全部"""
+    anchor = request.args.get("anchor")
+    if anchor:
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM open_log_8h WHERE substr(open_anchor, 1, 16) = ? ORDER BY id",
+                (anchor[:16],)
+            ).fetchall()
+            rows = [dict(r) for r in rows]
+        return jsonify(_strip_id(rows))
+    return jsonify(_strip_id(db.get_open_log_8h_all()))
+
+
 @app.route("/api/realtime")
 def realtime():
     try:

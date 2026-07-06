@@ -2,6 +2,22 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-07-06
+
+- **新增 8h 周期实盘策略 `real_trade_8h.py`（batch 隔离 + 组内 +10U 提前平仓）**
+  - 方向：仅 **跌幅榜-空（无过滤）TOP10**，选股复用 `real_trade_4h.select_top10("跌幅榜")`
+    （= 8h 虚拟盘 `跌幅榜-空（无过滤）` 选股逻辑：24h 量 ≥ 1000 万 U，涨跌幅升序取末 10 做空）
+  - 开仓：每天 00:30 / 08:30 / 16:30，3x 杠杆 / 10U 保证金 / 名义 30U，限价 ladder + 市价兜底
+  - 平仓（**与 4h 不同**）：
+    - **batch =（open_anchor, side）**，用 DB 记录的 `entry_price` + 实时标记价自算合计浮盈（税前，做空），各 batch 互不干扰
+    - 合计浮盈 ≥ **+10U** → 整组立即市价平（`close_reason=组内+10u`）
+    - 到 8h 窗口末前 10 分钟仍未触发 → 定时平（限价 ladder + 市价兜底，`close_reason=8h_timed`）
+  - 数据：新表 `open_log_8h`（结构同 `open_log_4h`），成交后回填真实 commission / funding
+  - 安全开关：环境变量 `REAL_8H_LIVE=1` 才真正下单；未设置为观察模式（只选币/打印/算浮盈，不下单不写库）
+  - 服务：`deploy/binance-real-8h.service`（默认带 `REAL_8H_LIVE=1`）
+  - 前端：Dashboard 改为展示 8h 实盘（`/api/open_log_8h`），隐藏原 4h 实盘板块
+  - 说明：4h 实盘（`binance-real-4h`）此前已停（disabled，最后成交 2026-06-10），8h 复用同一实盘账户
+
 ## 2026-06-03
 
 - **新增 `basis/` 子项目（基差套利 Phase 1：数据采集）**

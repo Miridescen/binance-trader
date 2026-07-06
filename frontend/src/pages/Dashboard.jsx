@@ -133,14 +133,14 @@ export default function Dashboard() {
   const [updatedRt, setUpdatedRt] = useState(null)
   const [timeFilter, setTimeFilter] = useState('all') // 'all' | 'HH:MM'
 
-  // 一键刷新所有数据：账户/持仓 + 4h 实盘记录
+  // 一键刷新所有数据：账户/持仓 + 8h 实盘记录
   const fetchAll = async () => {
     setLoadingRt(true)
     setLoadingLog(true)
     try {
       const [r1, r2] = await Promise.all([
         axios.get('/api/realtime'),
-        axios.get('/api/open_log_4h'),
+        axios.get('/api/open_log_8h'),
       ])
       if (!r1.data.error) setRt(r1.data)
       setLogs(r2.data || [])
@@ -307,8 +307,11 @@ export default function Dashboard() {
         )}
       </Card>
 
-      {/* 第三行：4h 实盘按周期分组对照 */}
+      {/* 第三行：8h 实盘按周期分组（跌幅榜-空 无过滤，+10U 提前平 / 否则跑满 8h） */}
       <Spin spinning={loadingLog}>
+        <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 15 }}>
+          8h 实盘 <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 8h</span>
+        </div>
         <div style={{ marginBottom: 12 }}>
           <Space wrap>
             <span style={{ color: '#666' }}>按时段筛选：</span>
@@ -328,23 +331,7 @@ export default function Dashboard() {
           </Space>
         </div>
         <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-          <Col xs={24} lg={12}>
-            <Card size="small" title={batchTitle('涨幅榜-空', 'green', gainerBatches, gNet)}>
-              <Table
-                columns={batchColumns}
-                dataSource={gainerBatches}
-                pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100] }}
-                scroll={{ x: 'max-content' }}
-                size="small"
-                rowClassName={r => {
-                  if (r.net_pnl > 0) return 'row-profit'
-                  if (r.net_pnl < 0) return 'row-loss'
-                  return ''
-                }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} lg={12}>
+          <Col xs={24}>
             <Card size="small" title={batchTitle('跌幅榜-空', 'cyan', loserBatches, lNet)}>
               <Table
                 columns={batchColumns}
