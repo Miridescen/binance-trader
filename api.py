@@ -358,10 +358,17 @@ def realtime():
         active_risk = [p for p in pos_risk if float(p["positionAmt"]) != 0]
 
         # 从未平仓记录获取 side 标记，区分涨幅空/跌幅空
-        # 先查 4h 实盘表（当前在跑的策略），再查老 open_log 兜底
+        # 优先 8h 实盘表（当前在跑的策略），再 4h，再老 open_log 兜底
         side_map = {}
         try:
             with db.get_conn() as conn:
+                rows8 = conn.execute(
+                    "SELECT symbol, side FROM open_log_8h "
+                    "WHERE close_time IS NULL OR close_time = '' ORDER BY id DESC"
+                ).fetchall()
+                for r in rows8:
+                    if r["symbol"] not in side_map:
+                        side_map[r["symbol"]] = r["side"]
                 rows4 = conn.execute(
                     "SELECT symbol, side FROM open_log_4h "
                     "WHERE close_time IS NULL OR close_time = '' ORDER BY id DESC"
@@ -388,7 +395,7 @@ def realtime():
             margin = entry * abs(amt) / lev if lev and entry else 0
             roe = pnl / margin * 100 if margin else 0
             sym = p["symbol"]
-            side = side_map.get(sym, "涨幅榜-空（有过滤）" if amt < 0 else "多")
+            side = side_map.get(sym, "跌幅榜-空（无过滤）" if amt < 0 else "多")
             details.append({
                 "symbol": sym,
                 "side": side,
