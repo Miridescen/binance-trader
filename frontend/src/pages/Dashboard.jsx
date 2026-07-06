@@ -245,31 +245,7 @@ export default function Dashboard() {
         }
       >
         <Row gutter={[12, 12]}>
-          <Col xs={24} lg={12}>
-            <Card size="small" type="inner" title={
-              <span>
-                <Tag color="green">涨幅榜-空</Tag>
-                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-                  {gainerPositions.length} 笔  浮盈 <PnlCell value={gainerPnl} />
-                </span>
-              </span>
-            }>
-              <Table
-                columns={positionColumns}
-                dataSource={gainerPositions}
-                pagination={false}
-                scroll={{ x: 'max-content' }}
-                size="small"
-                rowClassName={r => {
-                  if (r.unrealized_pnl > 0) return 'row-profit'
-                  if (r.unrealized_pnl < 0) return 'row-loss'
-                  return ''
-                }}
-                locale={{ emptyText: '无' }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} lg={12}>
+          <Col xs={24}>
             <Card size="small" type="inner" title={
               <span>
                 <Tag color="cyan">跌幅榜-空</Tag>
