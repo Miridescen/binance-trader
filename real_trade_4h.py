@@ -68,7 +68,8 @@ SETTLE_DELAY_SEC = 12  # 平仓完成后等几秒再查 income 账单
 # ── 精度工具 ──
 
 def floor_to_step(value: float, step: float) -> float:
-    return math.floor(value / step) * step
+    # round 抵消浮点误差（否则 86.3/0.1=862.999… 会被 floor 成 862 → 86.2，平仓少平留尾）
+    return math.floor(round(value / step, 8)) * step
 
 def round_to_tick(value: float, tick: float) -> float:
     decimals = max(0, -int(math.floor(math.log10(tick))))

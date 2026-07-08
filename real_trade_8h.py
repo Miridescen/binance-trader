@@ -327,6 +327,28 @@ def close_batch_timed(brows: list[dict], symbol_info: dict, window_end: datetime
             time.sleep(0.2)
 
 
+def flatten_leftover(symbols: list[str], symbol_info: dict):
+    """按账户实际持仓，兜底平掉这些 symbol 的任何残余（防浮点/部分成交留尾）。"""
+    try:
+        positions = auth_get("/fapi/v2/positionRisk")
+    except Exception as e:
+        log.warning(f"查持仓失败，跳过残余清扫：{e}")
+        return
+    held = {p["symbol"]: float(p["positionAmt"]) for p in positions if float(p["positionAmt"]) != 0}
+    for sym in set(symbols):
+        amt = held.get(sym)
+        if not amt:
+            continue
+        info = symbol_info.get(sym)
+        if not info:
+            continue
+        log.warning(f"  清扫残余持仓 {sym} 数量 {amt}")
+        cancel_all_orders(sym)
+        time.sleep(0.3)
+        place_close_market(sym, amt, info)
+        time.sleep(0.2)
+
+
 def close_batch(brows: list[dict], reason: str, market_now: bool, window_end: datetime | None = None):
     """平掉一个 batch 并回填。market_now=True 立即市价（+10U），否则限价 ladder。"""
     if not LIVE:
@@ -338,6 +360,8 @@ def close_batch(brows: list[dict], reason: str, market_now: bool, window_end: da
         close_batch_market(brows, symbol_info, reason)
     else:
         close_batch_timed(brows, symbol_info, window_end)
+    # 兜底：按实际持仓清掉本 batch 各 symbol 的任何残余
+    flatten_leftover([r["symbol"] for r in brows], symbol_info)
     _mark_provisional_close(brows, reason)
     log.info(f"  平仓完成，等 {SETTLE_DELAY_SEC}s 回填账单")
     time.sleep(SETTLE_DELAY_SEC)
