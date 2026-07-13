@@ -1,28 +1,12 @@
 """
 Flask API，为前端提供数据（从 SQLite 数据库读取）
 """
-import os
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from binance_client import auth_get
 import db
 
-
-# ── basis.db 独立连接（基差套利子项目）──
-BASIS_DB_PATH = os.path.join(os.path.dirname(__file__), "basis", "basis.db")
-
-
-@contextmanager
-def _basis_conn():
-    conn = sqlite3.connect(BASIS_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
 
 app = Flask(__name__)
 CORS(app)
@@ -227,66 +211,6 @@ def virtual_4h_groups_legacy():
 @app.route("/api/virtual_detail_4h")
 def virtual_detail_4h_legacy():
     return virtual_detail_window()
-
-
-# ── 基差套利 API ──
-
-@app.route("/api/basis/latest")
-def basis_latest():
-    """每个合约取最新一条快照"""
-    if not os.path.exists(BASIS_DB_PATH):
-        return jsonify([])
-    with _basis_conn() as conn:
-        rows = conn.execute("""
-            SELECT * FROM basis_snapshot
-            WHERE id IN (SELECT MAX(id) FROM basis_snapshot GROUP BY contract_symbol)
-            ORDER BY pair, contract_type
-        """).fetchall()
-        return jsonify([dict(r) for r in rows])
-
-
-@app.route("/api/basis/history")
-def basis_history():
-    """指定 contract_symbol 的历史快照
-       ?symbol=BTCUSDT_260626&hours=24（默认 72 小时）"""
-    if not os.path.exists(BASIS_DB_PATH):
-        return jsonify([])
-    symbol = request.args.get("symbol")
-    hours = request.args.get("hours", default=72, type=int)
-    if not symbol:
-        return jsonify([])
-    with _basis_conn() as conn:
-        rows = conn.execute("""
-            SELECT time, spot_price, futures_price, basis, basis_pct,
-                   annualized_pct, days_to_expiry
-            FROM basis_snapshot
-            WHERE contract_symbol = ?
-              AND time >= datetime('now', ?)
-            ORDER BY time ASC
-        """, (symbol, f"-{hours} hours")).fetchall()
-        return jsonify([dict(r) for r in rows])
-
-
-@app.route("/api/basis/stats")
-def basis_stats():
-    """每个合约的统计：平均/最大/最小年化基差，最近 N 天"""
-    if not os.path.exists(BASIS_DB_PATH):
-        return jsonify([])
-    days = request.args.get("days", default=7, type=int)
-    with _basis_conn() as conn:
-        rows = conn.execute("""
-            SELECT contract_symbol, pair, contract_type,
-                   COUNT(*) AS n,
-                   AVG(annualized_pct) AS avg_annual,
-                   MIN(annualized_pct) AS min_annual,
-                   MAX(annualized_pct) AS max_annual,
-                   AVG(basis_pct) AS avg_basis_pct
-            FROM basis_snapshot
-            WHERE time >= datetime('now', ?)
-            GROUP BY contract_symbol, pair, contract_type
-            ORDER BY pair, contract_type
-        """, (f"-{days} days",)).fetchall()
-        return jsonify([dict(r) for r in rows])
 
 
 @app.route("/api/open_log_4h")

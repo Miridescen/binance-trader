@@ -140,7 +140,6 @@
 | `open_top_shorts.py` | 24h 定时开仓策略（现已 disabled，2026-05-21 起停用） |
 | `real_trade_4h.py` | 4h 周期实盘策略（独立运行，限价 10min + 市价兜底）**已停用（2026-06-10 起）** |
 | `real_trade_8h.py` | **8h 周期实盘策略**（跌幅榜-空无过滤，batch 隔离，组内 +10U 提前平 / 否则跑满 8h；`REAL_8H_LIVE=1` 才下单） |
-| `basis/` | **基差套利子项目**（独立目录 + 独立 basis.db）当前 Phase 1 数据采集中 |
 | `monitor_positions.py` | 持仓监控（每 2 分钟拍快照 + 整点报表）|
 | `virtual_trade.py` | 主模拟盘（每天 09:00 开 / 08:50 平，对照组 + 模拟空 + 模拟多 + 快照） |
 | `virtual_trade_4h.py` | 4h 周期模拟盘（独立实现） |

@@ -2,6 +2,14 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-07-13
+
+- **删除基差套利模块（`basis/`）及其数据**
+  - 移除 `basis/` 目录（monitor.py / db.py / start_basis.sh）、前端 `BasisDashboard.jsx` 页面与菜单/路由
+  - 移除 api.py 里 `/api/basis/*` 三个接口及 basis.db 连接
+  - 服务器停用并删除 `binance-basis-monitor` 服务 + `basis/basis.db`（15MB）
+  - 与梦幻西游报价服务 `mhxy-api`（独立项目 `/opt/cbg-data`）无关，未受影响
+
 ## 2026-07-06
 
 - **新增 8h 周期实盘策略 `real_trade_8h.py`（batch 隔离 + 组内 +10U 提前平仓）**

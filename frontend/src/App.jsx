@@ -10,7 +10,6 @@ import PositionsDetail from './pages/PositionsDetail'
 import DailySummary from './pages/DailySummary'
 import BtcTrend from './pages/BtcTrend'
 import VirtualLogWindow from './pages/VirtualLog4h'
-import BasisDashboard from './pages/BasisDashboard'
 import 'antd/dist/reset.css'
 import './App.css'
 
@@ -26,7 +25,6 @@ const menuItems = [
   { key: '/virtuallog-8h',     icon: <LineChartOutlined />,      label: '8h模拟盘' },
   { key: '/virtuallog-12h',    icon: <LineChartOutlined />,      label: '12h模拟盘' },
   { key: '/btc-trend',         icon: <FundOutlined />,           label: 'BTC趋势' },
-  { key: '/basis',             icon: <LineChartOutlined />,      label: '基差套利' },
 ]
 
 function LoginPage({ onLogin }) {
@@ -111,7 +109,6 @@ export default function App() {
           <Route path="/virtual-detail"   element={<VirtualDetail />} />
           <Route path="/positions-detail" element={<PositionsDetail />} />
           <Route path="/btc-trend"       element={<BtcTrend />} />
-          <Route path="/basis"           element={<BasisDashboard />} />
         </Routes>
       </Content>
     </Layout>
