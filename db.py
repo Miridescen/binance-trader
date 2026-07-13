@@ -101,41 +101,6 @@ def init_db():
             roe_pct         REAL
         );
 
-        -- 虚拟开仓记录（原 virtual_open_log.csv）
-        CREATE TABLE IF NOT EXISTS virtual_log (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            open_time           TEXT,
-            close_time          TEXT,
-            symbol              TEXT,
-            side                TEXT,
-            change_pct          REAL,
-            market_cap_usd      TEXT,
-            circulating_supply  TEXT,
-            has_mcap            INTEGER,
-            btc_change_pct      REAL,
-            symbol_funding_rate REAL,
-            oi_change_pct       REAL,
-            long_short_ratio    REAL,
-            entry_price         REAL,
-            close_price         REAL,
-            unrealized_pnl      REAL,
-            roe_pct             REAL
-        );
-
-        -- 虚拟持仓快照明细
-        CREATE TABLE IF NOT EXISTS virtual_detail (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            time            TEXT,
-            symbol          TEXT,
-            side            TEXT,
-            entry_price     REAL,
-            mark_price      REAL,
-            unrealized_pnl  REAL,
-            roe_pct         REAL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_virtual_detail_time ON virtual_detail(time);
-
         -- 4h 周期虚拟盘：每 4 小时一个窗口，组内 +10u 提前平仓
         CREATE TABLE IF NOT EXISTS virtual_log_4h (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,7 +374,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_open_log_open_time ON open_log(open_time);
         CREATE INDEX IF NOT EXISTS idx_positions_log_time ON positions_log(time);
         CREATE INDEX IF NOT EXISTS idx_positions_detail_time ON positions_detail(time);
-        CREATE INDEX IF NOT EXISTS idx_virtual_log_open_time ON virtual_log(open_time);
         """)
 
 
