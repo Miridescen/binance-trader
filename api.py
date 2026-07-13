@@ -126,10 +126,16 @@ def virtual_detail_window():
     return jsonify(_strip_id(rows))
 
 
+_groups_cache = {}   # window -> (version, groups_json)
+
+
 @app.route("/api/virtual_groups")
 def virtual_groups():
     """按 (open_time, side) 聚合的组级统计：用于"+10u 触发 vs 走完窗口"对照。
-       ?window=4h/8h/12h"""
+       ?window=4h/8h/12h/24h
+
+    智能缓存：已平仓组的"走完窗口"值一旦平仓即固定，只有新组平仓时才变。
+    用"已平仓行数 + 最新平仓时间"当版本号，没变则直接返回缓存（秒开）。"""
     w = _validate_window(request.args.get("window", "4h"))
     if w is None:
         return jsonify({"error": "invalid window"}), 400
@@ -138,6 +144,14 @@ def virtual_groups():
     timed_reason = f"{w}_timed"
 
     with db.get_conn() as conn:
+        ver_row = conn.execute(
+            f"SELECT COUNT(*) AS n, MAX(close_time) AS mx FROM {log_table} WHERE close_time IS NOT NULL"
+        ).fetchone()
+        version = (ver_row["n"], ver_row["mx"])
+        cached = _groups_cache.get(w)
+        if cached and cached[0] == version:
+            return jsonify(cached[1])
+
         groups_rows = conn.execute(
             f"""SELECT open_time, window_end, side,
                        COUNT(*) AS n_orders,
@@ -153,33 +167,25 @@ def virtual_groups():
         ).fetchall()
         groups = [dict(r) for r in groups_rows]
 
-        # 一次 CTE 算出所有组"走完窗口"的合计浮盈（各组窗口末最后一张快照），
-        # 取代原来"每个触发组单独查一次大表"的 N+1（上千次）查询。
-        held_rows = conn.execute(
-            f"""WITH lt AS (
-                    SELECT l.open_time AS o, l.side AS s, MAX(d.time) AS mt
-                    FROM {det_table} d
-                    JOIN {log_table} l ON d.log_id = l.id
-                    WHERE l.close_time IS NOT NULL
-                    GROUP BY l.open_time, l.side
-                )
-                SELECT l.open_time AS o, l.side AS s,
-                       SUM(d.unrealized_pnl) AS held, lt.mt AS last_time
-                FROM {det_table} d
-                JOIN {log_table} l ON d.log_id = l.id
-                JOIN lt ON lt.o = l.open_time AND lt.s = l.side AND d.time = lt.mt
-                GROUP BY l.open_time, l.side"""
-        ).fetchall()
-        held_map = {(r["o"], r["s"]): (r["held"], r["last_time"]) for r in held_rows}
-
+        # 只对触发了 +10U 的组查"走完窗口"值（走索引，单组很快）
         for g in groups:
             if g["n_hit"] > 0:
-                h = held_map.get((g["open_time"], g["side"]))
-                g["sum_pnl_if_held"] = h[0] if h else None
-                g["last_detail_time"] = h[1] if h else None
+                row = conn.execute(
+                    f"""SELECT SUM(d.unrealized_pnl) AS sum_pnl_held, d.time
+                        FROM {det_table} d
+                        JOIN {log_table} l ON d.log_id = l.id
+                        WHERE l.open_time = ? AND l.side = ?
+                        GROUP BY d.time
+                        ORDER BY d.time DESC LIMIT 1""",
+                    (g["open_time"], g["side"])
+                ).fetchone()
+                g["sum_pnl_if_held"] = row["sum_pnl_held"] if row else None
+                g["last_detail_time"] = row["time"] if row else None
             else:
                 g["sum_pnl_if_held"] = g["sum_pnl_actual"]
                 g["last_detail_time"] = None
+
+    _groups_cache[w] = (version, groups)
     return jsonify(groups)
 
 
