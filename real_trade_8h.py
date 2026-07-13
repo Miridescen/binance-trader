@@ -26,7 +26,7 @@ import logging
 from datetime import datetime, timedelta
 
 from binance_client import (
-    auth_get, get_exchange_info, get_mark_price, get_all_mark_prices,
+    auth_get, auth_post, get_exchange_info, get_mark_price, get_all_mark_prices,
 )
 # 复用 4h 实盘里已经过实盘验证的下单/撤单/精度/选币原语
 from real_trade_4h import (
@@ -35,9 +35,12 @@ from real_trade_4h import (
     place_close_limit, place_close_market,
     get_order, cancel_order, cancel_all_orders,
     query_funding,
+    floor_to_step, fmt,
     LEVERAGE, MARGIN_PER_POS, TOP_N,
     ATTEMPT_INTERVAL_SEC, MAX_LIMIT_ATTEMPTS,
 )
+
+NOTIONAL = MARGIN_PER_POS * LEVERAGE   # 每单目标名义价值（30U）
 import db
 
 logging.basicConfig(
@@ -98,6 +101,41 @@ def insert_open_record_8h(symbol: str, side_label: str, order_id: int, anchor_ts
     }
     new_id = db.insert_open_log_8h(row)
     log.info(f"  {symbol} INSERT open_log_8h#{new_id}: entry={avg_price} qty={executed} @ {open_time}")
+    return new_id
+
+
+def _symbol_position(symbol: str) -> tuple[float, float]:
+    """返回 (持仓数量绝对值, 持仓均价)。无持仓返回 (0, 0)。"""
+    try:
+        positions = auth_get("/fapi/v2/positionRisk")
+    except Exception as e:
+        log.warning(f"  {symbol} 取持仓失败：{e}")
+        return 0.0, 0.0
+    for p in positions:
+        if p["symbol"] == symbol and float(p["positionAmt"]) != 0:
+            return abs(float(p["positionAmt"])), float(p["entryPrice"])
+    return 0.0, 0.0
+
+
+def insert_open_from_position(symbol: str, side_label: str, anchor_ts: str) -> int | None:
+    """按账户实际持仓入库（用于部分成交/兜底补齐后，保证 DB 记录=实际持仓）。
+    open_time 用 anchor（周期 :30），保证回填账单时能覆盖窗口内全部成交。"""
+    amt, entry = _symbol_position(symbol)
+    if amt == 0 or entry == 0:
+        log.warning(f"  {symbol} 兜底后仍无持仓，不入库")
+        return None
+    row = {
+        "open_anchor": anchor_ts,
+        "open_time": anchor_ts, "close_time": None,
+        "symbol": symbol, "side": side_label,
+        "entry_price": entry, "close_price": None,
+        "position_amt": amt, "leverage": LEVERAGE,
+        "unrealized_pnl": None, "roe_pct": None,
+        "open_commission": None, "close_commission": None,
+        "funding_fee": None, "close_reason": None,
+    }
+    new_id = db.insert_open_log_8h(row)
+    log.info(f"  {symbol} INSERT open_log_8h#{new_id}（按实际持仓）: entry={entry} qty={amt}")
     return new_id
 
 
@@ -188,23 +226,35 @@ def run_open_cycle(anchor: datetime):
             time.sleep(0.15)
         pending = still
 
-    # ── 市价兜底 ──
+    # ── 市价兜底：按目标补齐差额，再按实际持仓入库 ──
     if pending:
-        log.warning(f"仍有 {len(pending)} 个未成交，市价兜底")
-        positions = auth_get("/fapi/v2/positionRisk")
-        held = {p["symbol"] for p in positions if float(p["positionAmt"]) != 0}
+        log.warning(f"仍有 {len(pending)} 个未成交/部分成交，市价补齐")
         for sym, data in pending.items():
-            cancel_order(sym, data["orderId"])
+            info = data["info"]
+            step = info["step_size"]
+            cancel_order(sym, data["orderId"])   # 撤掉残留限价单
             time.sleep(0.3)
-            if get_order(sym, data["orderId"]).get("status") == "FILLED":
-                insert_open_record_8h(sym, data["side_label"], data["orderId"], anchor_ts)
-                continue
-            if sym in held:
-                continue
-            res = place_open_market(sym, data["info"])
-            if res:
-                time.sleep(1)
-                insert_open_record_8h(sym, data["side_label"], res["orderId"], anchor_ts)
+            cur, _ = _symbol_position(sym)        # 已成交的实际持仓（部分成交时 > 0）
+            try:
+                mark = get_mark_price(sym)
+            except Exception:
+                mark = 0
+            target = floor_to_step(NOTIONAL / mark, step) if mark else 0
+            missing = floor_to_step(max(0.0, target - cur), step)
+            if mark and missing > 0 and missing * mark >= info["min_notional"]:
+                res = auth_post("/fapi/v1/order", {
+                    "symbol": sym, "side": "SELL", "type": "MARKET",
+                    "quantity": fmt(missing, step),
+                })
+                if "orderId" in res:
+                    log.info(f"  {sym} 市价补 SELL × {fmt(missing, step)}（已有 {cur}，目标 {target}）")
+                    time.sleep(1)
+                else:
+                    log.error(f"  {sym} 市价补单失败：{res.get('msg', res)}")
+            elif cur > 0:
+                log.info(f"  {sym} 已有持仓 {cur}，差额不足最小名义，按实际入库")
+            # 按实际持仓入库（哪怕只成交了部分，也保证 DB=实际）
+            insert_open_from_position(sym, data["side_label"], anchor_ts)
             time.sleep(0.15)
 
     log.info(f"═══ 开仓周期结束 {anchor_ts} ═══\n")
