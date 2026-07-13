@@ -436,34 +436,6 @@ def writeback_batch(brows: list[dict], reason: str):
                  f"roe={roe:+.2f}% funding={funding} [{reason}]")
 
 
-_orphan_seen: dict = {}   # symbol -> 连续被判为孤儿的次数（防开仓瞬间误判）
-
-
-def reconcile_orphans():
-    """账户只跑 8h 策略：若某持仓 symbol 不属于任何未平 batch = 孤儿仓（跨 batch 平仓留尾等），清掉。
-    需连续 2 次确认，避免开仓过程中 DB 还没写入被误伤。"""
-    global _orphan_seen
-    live_syms = {r["symbol"] for r in db.get_open_log_8h_unclosed()}
-    try:
-        positions = auth_get("/fapi/v2/positionRisk")
-    except Exception as e:
-        log.warning(f"孤儿仓核对取持仓失败：{e}")
-        return
-    held = {p["symbol"]: float(p["positionAmt"]) for p in positions if float(p["positionAmt"]) != 0}
-    new_seen = {}
-    for sym, amt in held.items():
-        if sym in live_syms:
-            continue
-        cnt = _orphan_seen.get(sym, 0) + 1
-        if cnt >= 2:
-            log.warning(f"孤儿仓 {sym} 数量 {amt}（不属任何未平 batch）→ 清掉")
-            _, symbol_info = get_exchange_info()
-            flatten_leftover([sym], symbol_info)
-        else:
-            new_seen[sym] = cnt
-    _orphan_seen = new_seen
-
-
 def monitor_batches():
     """遍历所有未平 batch：+10U 立即市价平；到窗口末定时平。"""
     rows = db.get_open_log_8h_unclosed()
@@ -542,13 +514,6 @@ def main():
                 monitor_batches()
             except Exception as e:
                 log.error(f"监控异常：{e}", exc_info=True)
-
-            # 2.5) 孤儿仓核对（跨 batch 平仓留尾兜底），开仓窗口内不做以免误判
-            if LIVE and not _is_in_open_window(now):
-                try:
-                    reconcile_orphans()
-                except Exception as e:
-                    log.error(f"孤儿仓核对异常：{e}", exc_info=True)
 
             # 3) 回填重试：已平但真实数值没填上的（userTrades 结算延迟）
             if LIVE:
