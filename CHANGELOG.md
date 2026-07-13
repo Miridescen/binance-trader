@@ -2,6 +2,14 @@
 
 记录每次策略参数调整和重要改动，便于回溯和复盘。
 
+## 2026-07-13（下午）
+
+- **废弃旧主模拟盘，新增 24h 窗口虚拟盘**
+  - 删除 `virtual_trade.py`（旧主盘：每天 09:00 开、持仓 24h、无 +10U）、前端 `VirtualLog.jsx` / `VirtualDetail.jsx` 页面、`/api/virtual_log` 与 `/api/virtual_detail*` 接口、无用的 `/api/dashboard`
+  - 清除数据：DROP `virtual_log` / `virtual_detail`（主盘 326 万行快照，占库最大）
+  - 新增 `virtual_trade_24h.py`：走 `WindowedSimulator`（**逻辑同 4/8/12h，含 +10U 提前平**），每天 00:30 开、持仓 24h；表 `virtual_log_24h` / `virtual_detail_24h`；服务 `binance-virtual-24h`
+  - 前端加「24h模拟盘」页；`_ALLOWED_WINDOWS` / `_WINDOW_WHITELIST` 加 `24h`
+
 ## 2026-07-13
 
 - **删除基差套利模块（`basis/`）及其数据**

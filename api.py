@@ -32,10 +32,6 @@ def positions():
 def open_log():
     return jsonify(_strip_id(db.get_open_log_all()))
 
-@app.route("/api/virtual_log")
-def virtual_log():
-    return jsonify(_strip_id(db.get_virtual_log_all()))
-
 @app.route("/api/daily_summary")
 def daily_summary():
     days = request.args.get("days", type=int)
@@ -70,28 +66,7 @@ def positions_detail_times():
         return jsonify([])
     return jsonify(db.get_positions_detail_times(date))
 
-@app.route("/api/virtual_detail")
-def virtual_detail():
-    time_str = request.args.get("time")
-    if time_str:
-        return jsonify(_strip_id(db.get_virtual_detail_by_time(time_str)))
-    date = request.args.get("date")
-    if date:
-        return jsonify(_strip_id(db.get_virtual_detail_by_date(date)))
-    return jsonify(_strip_id(db.get_virtual_detail_all()))
-
-@app.route("/api/virtual_detail/dates")
-def virtual_detail_dates():
-    return jsonify(db.get_virtual_detail_dates())
-
-@app.route("/api/virtual_detail/times")
-def virtual_detail_times():
-    date = request.args.get("date")
-    if not date:
-        return jsonify([])
-    return jsonify(db.get_virtual_detail_times(date))
-
-_WINDOW_WHITELIST = {"4h", "8h", "12h"}
+_WINDOW_WHITELIST = {"4h", "8h", "12h", "24h"}
 
 
 def _validate_window(w):
@@ -358,48 +333,6 @@ def realtime():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-@app.route("/api/dashboard")
-def dashboard():
-    """看板数据：最新一条持仓监控 + 最新快照的实盘和模拟盘明细"""
-    try:
-        last_monitor = db.get_positions_log_latest()
-        if last_monitor:
-            last_monitor.pop("id", None)
-
-        with db.get_conn() as conn:
-            # 用 id 倒序拿最新时间（id 单调，对应 time 单调，比 MAX(time) 快很多）
-            row = conn.execute("SELECT time FROM positions_detail ORDER BY id DESC LIMIT 1").fetchone()
-            latest_time = row["time"] if row else None
-            real_detail = []
-            if latest_time:
-                rows = conn.execute(
-                    "SELECT * FROM positions_detail WHERE time = ? ORDER BY unrealized_pnl DESC", (latest_time,)
-                ).fetchall()
-                real_detail = [dict(r) for r in rows]
-                for r in real_detail:
-                    r.pop("id", None)
-
-            row2 = conn.execute("SELECT time FROM virtual_detail ORDER BY id DESC LIMIT 1").fetchone()
-            virt_time = row2["time"] if row2 else None
-            virt_detail = []
-            if virt_time:
-                rows2 = conn.execute(
-                    "SELECT * FROM virtual_detail WHERE time = ? ORDER BY side, unrealized_pnl DESC", (virt_time,)
-                ).fetchall()
-                virt_detail = [dict(r) for r in rows2]
-                for r in virt_detail:
-                    r.pop("id", None)
-
-        return jsonify({
-            "monitor": last_monitor,
-            "real_detail": real_detail,
-            "real_detail_time": latest_time,
-            "virtual_detail": virt_detail,
-            "virtual_detail_time": virt_time,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)

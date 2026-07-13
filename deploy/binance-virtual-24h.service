@@ -1,0 +1,19 @@
+[Unit]
+Description=24h 周期虚拟盘（每天 00:30 开仓，持仓 24h，组内 +10U 提前平；取代旧主模拟盘）
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/binance-trader
+ExecStart=/usr/bin/python3 /root/binance-trader/virtual_trade_24h.py
+Restart=always
+RestartSec=30
+StartLimitIntervalSec=0
+
+StandardOutput=append:/root/binance-trader/logs/binance-virtual-24h.log
+StandardError=append:/root/binance-trader/logs/binance-virtual-24h.log
+
+[Install]
+WantedBy=multi-user.target

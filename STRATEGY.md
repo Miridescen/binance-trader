@@ -103,15 +103,19 @@
 - SQLite 数据库（trader.db）
 - 主要表：open_log、batch_summary、events_log、positions_log、positions_detail、virtual_log、virtual_detail、virtual_log_4h、virtual_detail_4h、daily_summary、btc_indicator、btc_signal_log
 
-### 周期虚拟盘（4h / 8h / 12h 三套并行）
+### 周期虚拟盘（4h / 8h / 12h / 24h 四套并行）
 
-与主模拟盘并行的高频对照沙盘，共三个独立 systemd 服务，逻辑一致仅参数不同：
+> 旧主模拟盘（`virtual_trade.py`，每天 09:00 开、持仓 24h、**无 +10U**）已于 2026-07-13 废弃删除，
+> 由下面走窗口逻辑（**含 +10U**）的 24h 虚拟盘取代。
+
+四个独立 systemd 服务，逻辑完全一致仅周期不同：
 
 | 周期 | 开仓时刻 | 数据表 | systemd 服务 |
 |---|---|---|---|
 | 4h | 00:30 / 04:30 / 08:30 / 12:30 / 16:30 / 20:30 | `virtual_log_4h` / `virtual_detail_4h` | `binance-virtual-4h` |
 | 8h | 00:30 / 08:30 / 16:30 | `virtual_log_8h` / `virtual_detail_8h` | `binance-virtual-8h` |
 | 12h | 08:30 / 20:30 | `virtual_log_12h` / `virtual_detail_12h` | `binance-virtual-12h` |
+| 24h | 00:30 | `virtual_log_24h` / `virtual_detail_24h` | `binance-virtual-24h` |
 
 **共同规则**：
 - 8 组方向：涨幅榜/跌幅榜 × 做空/做多 × 有过滤/无过滤
@@ -122,15 +126,15 @@
 - 参数：3x 杠杆 / 10U/笔，沿用主模拟盘
 
 **代码组织**：
-- `virtual_trade_window.py` 通用 `WindowedSimulator`（8h / 12h 使用）
+- `virtual_trade_window.py` 通用 `WindowedSimulator`（8h / 12h / 24h 使用）
 - `virtual_trade_4h.py` 是早期独立实现（逻辑等价，未迁移）
-- `virtual_trade_8h.py` / `virtual_trade_12h.py` 是 5 行薄入口
+- `virtual_trade_8h.py` / `virtual_trade_12h.py` / `virtual_trade_24h.py` 是薄入口
 
-**API**：`/api/virtual_log_window?window=4h|8h|12h`、`/api/virtual_groups?window=...`、`/api/virtual_detail_window?window=...`
+**API**：`/api/virtual_log_window?window=4h|8h|12h|24h`、`/api/virtual_groups?window=...`、`/api/virtual_detail_window?window=...`
 
 ### 前端展示
 - http://服务器IP:8080（密码保护）
-- 六个页面：Dashboard、持仓监控、开仓记录、持仓明细、模拟盘、模拟盘明细
+- 页面：Dashboard、开仓记录、4h/8h/12h/24h 模拟盘、BTC趋势
 - 看板：实时余额/保证金/浮盈亏 + 实盘vs模拟盘持仓对比
 
 ## 七、关键文件

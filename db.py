@@ -257,6 +257,46 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_time ON virtual_detail_12h(time);
         CREATE INDEX IF NOT EXISTS idx_virtual_detail_12h_log_id ON virtual_detail_12h(log_id);
 
+        -- 24h 周期虚拟盘（窗口逻辑，含 +10U 提前平；取代旧主模拟盘）
+        CREATE TABLE IF NOT EXISTS virtual_log_24h (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            open_time           TEXT,
+            window_end          TEXT,
+            close_time          TEXT,
+            close_reason        TEXT,
+            symbol              TEXT,
+            side                TEXT,
+            change_pct          REAL,
+            market_cap_usd      TEXT,
+            circulating_supply  TEXT,
+            has_mcap            INTEGER,
+            btc_change_pct      REAL,
+            symbol_funding_rate REAL,
+            oi_change_pct       REAL,
+            long_short_ratio    REAL,
+            entry_price         REAL,
+            close_price         REAL,
+            unrealized_pnl      REAL,
+            roe_pct             REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_24h_open_time ON virtual_log_24h(open_time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_log_24h_window_end ON virtual_log_24h(window_end);
+
+        CREATE TABLE IF NOT EXISTS virtual_detail_24h (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            time            TEXT,
+            log_id          INTEGER,
+            symbol          TEXT,
+            side            TEXT,
+            entry_price     REAL,
+            mark_price      REAL,
+            unrealized_pnl  REAL,
+            roe_pct         REAL,
+            is_post_close   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_24h_time ON virtual_detail_24h(time);
+        CREATE INDEX IF NOT EXISTS idx_virtual_detail_24h_log_id ON virtual_detail_24h(log_id);
+
         -- 4h 周期实盘开仓记录（精简版，仅必要字段，全部等成交后回填）
         -- open_anchor 是周期 :30 整点（如 "2026-05-28 04:30:00"），同一批次稳定一致
         CREATE TABLE IF NOT EXISTS open_log_4h (
@@ -791,7 +831,7 @@ def get_open_log_8h_pending_writeback() -> list[dict]:
 
 # ── virtual_log_{4h,8h,12h} / virtual_detail_{4h,8h,12h} 通用操作 ─────────────
 
-_ALLOWED_WINDOWS = {"4h", "8h", "12h"}
+_ALLOWED_WINDOWS = {"4h", "8h", "12h", "24h"}
 
 
 def _ensure_window(window: str):
