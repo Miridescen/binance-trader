@@ -153,19 +153,30 @@ def virtual_groups():
         ).fetchall()
         groups = [dict(r) for r in groups_rows]
 
+        # 一次 CTE 算出所有组"走完窗口"的合计浮盈（各组窗口末最后一张快照），
+        # 取代原来"每个触发组单独查一次大表"的 N+1（上千次）查询。
+        held_rows = conn.execute(
+            f"""WITH lt AS (
+                    SELECT l.open_time AS o, l.side AS s, MAX(d.time) AS mt
+                    FROM {det_table} d
+                    JOIN {log_table} l ON d.log_id = l.id
+                    WHERE l.close_time IS NOT NULL
+                    GROUP BY l.open_time, l.side
+                )
+                SELECT l.open_time AS o, l.side AS s,
+                       SUM(d.unrealized_pnl) AS held, lt.mt AS last_time
+                FROM {det_table} d
+                JOIN {log_table} l ON d.log_id = l.id
+                JOIN lt ON lt.o = l.open_time AND lt.s = l.side AND d.time = lt.mt
+                GROUP BY l.open_time, l.side"""
+        ).fetchall()
+        held_map = {(r["o"], r["s"]): (r["held"], r["last_time"]) for r in held_rows}
+
         for g in groups:
             if g["n_hit"] > 0:
-                row = conn.execute(
-                    f"""SELECT SUM(d.unrealized_pnl) AS sum_pnl_held, d.time
-                        FROM {det_table} d
-                        JOIN {log_table} l ON d.log_id = l.id
-                        WHERE l.open_time = ? AND l.side = ?
-                        GROUP BY d.time
-                        ORDER BY d.time DESC LIMIT 1""",
-                    (g["open_time"], g["side"])
-                ).fetchone()
-                g["sum_pnl_if_held"] = row["sum_pnl_held"] if row else None
-                g["last_detail_time"] = row["time"] if row else None
+                h = held_map.get((g["open_time"], g["side"]))
+                g["sum_pnl_if_held"] = h[0] if h else None
+                g["last_detail_time"] = h[1] if h else None
             else:
                 g["sum_pnl_if_held"] = g["sum_pnl_actual"]
                 g["last_detail_time"] = None
