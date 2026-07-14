@@ -12,8 +12,14 @@ html, body, #root {
     padding: 0 8px !important;
     gap: 8px !important;
   }
-  /* 表格容器不溢出 */
+  /* 关键：Col 默认 min-width:auto 会被表格内容撑宽，把整页（含刷新栏）顶出屏幕。
+     置 0 后表格横向滚动被限制在自己容器里，不再撑破页面、按钮也不被切 */
+  .ant-col {
+    min-width: 0 !important;
+  }
+  /* 表格容器内部横向滚动，不溢出页面 */
   .ant-table-wrapper {
+    max-width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -26,5 +32,10 @@ html, body, #root {
   }
   .ant-statistic-content {
     font-size: 16px !important;
+  }
+  /* 表格字号缩一点，减少横向溢出 */
+  .ant-table-cell {
+    font-size: 12px !important;
+    padding: 6px 8px !important;
   }
 }

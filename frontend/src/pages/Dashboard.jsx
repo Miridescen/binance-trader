@@ -195,21 +195,22 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* 顶部刷新栏（粘性，滚到哪都能点） */}
+      {/* 顶部刷新栏（粘性，滚到哪都能点；窄屏可换行不溢出） */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
         background: '#f0f2f5', padding: '8px 0', marginBottom: 8,
-        display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12,
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+        gap: 8, flexWrap: 'wrap',
       }}>
         <span style={{ color: '#666', fontSize: 13 }}>
           {updatedRt ? `更新于 ${updatedRt}` : '未刷新'}
         </span>
         <Button
           type="primary"
-          size="large"
           icon={<ReloadOutlined />}
           loading={loadingRt || loadingLog}
           onClick={fetchAll}
+          style={{ flexShrink: 0 }}
         >
           刷新全部
         </Button>
