@@ -3,6 +3,19 @@ html, body, #root {
   width: 100%;
 }
 
+/* 防止 antd 打开浮层时给 body 加 padding-right 补偿滚动条，导致页面左右晃 */
+body {
+  padding-right: 0 !important;
+  overflow-x: hidden !important;
+}
+/* 下拉浮层不超出视口宽度 */
+.ant-select-dropdown,
+.ant-picker-dropdown,
+.ant-dropdown,
+.ant-table-filter-dropdown {
+  max-width: 100vw;
+}
+
 @media (max-width: 768px) {
   /* 移动端减少内边距 */
   .ant-layout-content {
