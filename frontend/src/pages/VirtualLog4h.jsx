@@ -20,6 +20,13 @@ function PnlCell({ value }) {
   )
 }
 
+// 当前本地时间字符串（与 window_end 同格式，用于判断窗口是否已结束）
+function nowStr() {
+  const d = new Date()
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 const SIDE_PAIRS = [
   { key: 'gainer_short', label: '涨幅榜-空', filtered: '涨幅榜-空（有过滤）', unfiltered: '涨幅榜-空（无过滤）', tagColor: 'green' },
   { key: 'gainer_long',  label: '涨幅榜-多', filtered: '涨幅榜-多（有过滤）', unfiltered: '涨幅榜-多（无过滤）', tagColor: 'red' },
@@ -66,8 +73,17 @@ function buildGroupColumns(windowLabel) {
       title: `走完${windowLabel}`,
       dataIndex: 'sum_pnl_if_held',
       key: 'sum_pnl_if_held',
-      width: 110,
-      render: v => <PnlCell value={v} />,
+      width: 130,
+      render: (v, r) => {
+        // 窗口还没结束：这里是"扛到当前时刻"的中间值，不是最终"走完窗口"值
+        const pending = r.window_end && r.window_end > nowStr()
+        return (
+          <span>
+            <PnlCell value={v} />
+            {pending && <Tag color="processing" style={{ marginLeft: 6, fontSize: 11, lineHeight: '16px' }}>进行中</Tag>}
+          </span>
+        )
+      },
       sorter: (a, b) => parseFloat(a.sum_pnl_if_held || 0) - parseFloat(b.sum_pnl_if_held || 0),
     },
     {
