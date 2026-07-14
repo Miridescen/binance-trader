@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Layout, Menu, Input, Button, Card, ConfigProvider } from 'antd'
+import { Layout, Menu, Input, Button, Card } from 'antd'
 import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { DashboardOutlined, FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined, LineChartOutlined, LockOutlined } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
@@ -81,9 +81,6 @@ export default function App() {
   }
 
   return (
-    // 所有下拉浮层（Select/表格筛选等）渲染到触发元素的父容器内，而不是 body 层。
-    // 否则移动端打开下拉时浮层会撑破页面宽度，导致页面左右晃动。
-    <ConfigProvider getPopupContainer={node => node?.parentNode || document.body}>
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px', gap: 32 }}>
         <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap' }}>
@@ -112,6 +109,5 @@ export default function App() {
         </Routes>
       </Content>
     </Layout>
-    </ConfigProvider>
   )
 }

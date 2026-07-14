@@ -51,4 +51,10 @@ body {
     font-size: 12px !important;
     padding: 6px 8px !important;
   }
+  /* 输入框≥16px，双保险防 iOS 点击输入框自动放大 */
+  .ant-select-selection-search-input,
+  .ant-input,
+  input {
+    font-size: 16px !important;
+  }
 }
