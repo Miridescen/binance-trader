@@ -67,10 +67,7 @@ function buildGroupColumns(windowLabel) {
       dataIndex: 'sum_pnl_if_held',
       key: 'sum_pnl_if_held',
       width: 110,
-      render: (v, r) => {
-        if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>同上</span>
-        return <PnlCell value={v} />
-      },
+      render: v => <PnlCell value={v} />,
       sorter: (a, b) => parseFloat(a.sum_pnl_if_held || 0) - parseFloat(b.sum_pnl_if_held || 0),
     },
     {
@@ -78,11 +75,10 @@ function buildGroupColumns(windowLabel) {
       key: 'diff',
       width: 90,
       render: (_, r) => {
-        if (r.n_hit === 0) return <span style={{ color: '#bbb' }}>-</span>
         const a = parseFloat(r.sum_pnl_actual || 0)
         const b = parseFloat(r.sum_pnl_if_held || 0)
         const d = a - b
-        const color = d >= 0 ? '#3f8600' : '#cf1322'
+        const color = d > 0 ? '#3f8600' : (d < 0 ? '#cf1322' : '#999')
         return <span style={{ color, fontWeight: 500 }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}</span>
       },
     },
