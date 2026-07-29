@@ -1,5 +1,5 @@
 """
-8h 周期实盘策略（batch 隔离 + 组内 +10U 提前平仓）。
+8h 周期实盘策略（batch 隔离 + 组内 +16U 提前平仓）。
 
 规则：
   - 每天 3 个开仓周期：00:30 / 08:30 / 16:30
@@ -9,7 +9,7 @@
   - 平仓（batch 隔离）：
       · 每个 batch =（open_anchor, side）一组 ~10 单，用 DB 记录的 entry_price + 实时标记价
         自行计算“合计浮盈”（税前，和虚拟盘 _calc_pnl 一致），互不干扰
-      · 合计浮盈 ≥ +10U → 整组立即市价平仓（close_reason=组内+10u）
+      · 合计浮盈 ≥ +16U → 整组立即市价平仓（close_reason 仍记为 组内+10u，作为“组内提前止盈”类别标签，兼容看板/统计）
       · 到 8h 窗口末（open_anchor+8h 前 10 分钟起）仍没触发 → 定时平仓
         （限价 ladder + 市价兜底，close_reason=8h_timed）
   - 数据：open_log_8h 表，成交后回填真实 commission / funding_fee
@@ -54,7 +54,7 @@ LIVE = os.environ.get("REAL_8H_LIVE") == "1"
 
 # ── 策略参数 ──
 WINDOW_HOURS      = 8
-TARGET_GROUP_PNL  = 10.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平
+TARGET_GROUP_PNL  = 16.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（2026-07 由 10 调至 16，见 CHANGELOG）
 OPEN_HOURS        = (0, 8, 16)           # 开仓整点
 OPEN_MINUTE       = 30
 OPEN_WINDOW_MIN   = 5                     # 开仓滑动窗口（幂等）
@@ -511,7 +511,7 @@ def monitor_batches():
         pnl = batch_pnl(brows, price_map)
 
         if pnl is not None and pnl >= TARGET_GROUP_PNL:
-            log.info(f"★ +10U 触发  {side} @ {anchor}  合计浮盈 {pnl:+.2f}U → 整组市价平")
+            log.info(f"★ 组内止盈触发(≥{TARGET_GROUP_PNL:.0f}U)  {side} @ {anchor}  合计浮盈 {pnl:+.2f}U → 整组市价平")
             close_batch(brows, reason="组内+10u", market_now=True)
             continue
         if now >= window_end - timedelta(minutes=CLOSE_PREP_MIN):
