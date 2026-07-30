@@ -72,21 +72,24 @@ DIRECTIONS = [
 
 # ── 开仓 ──
 
-def insert_open_record_8h(symbol: str, side_label: str, order_id: int, anchor_ts: str) -> int | None:
-    """开仓成交后按实际成交数据 INSERT open_log_8h。"""
-    try:
-        order = get_order(symbol, order_id)
-    except Exception as e:
-        log.error(f"  {symbol}#{order_id} 查 order 失败：{e}")
-        return None
-    if order.get("status") not in ("FILLED", "PARTIALLY_FILLED"):
-        log.warning(f"  {symbol}#{order_id} 状态非 FILLED：{order.get('status')}")
-        return None
-    avg_price = float(order.get("avgPrice", 0))
-    executed  = float(order.get("executedQty", 0))
+def insert_open_record_8h(symbol: str, side_label: str, order_id: int, anchor_ts: str,
+                          order: dict | None = None) -> int | None:
+    """开仓成交后按实际成交数据 INSERT open_log_8h。
+    order: 上层 ladder 已查过订单就直接传进来复用，避免二次查单碰上币安状态延迟
+           （FILLED→NEW 的短暂不一致会导致漏记 → 隐形孤儿仓）。
+    不再因 status 短暂返回非 FILLED 而放弃：只看是否有成交量。真没成交量的
+    交给开仓周期结束时的 reconcile_open_batch 按实际持仓兜底补录。"""
+    if order is None:
+        try:
+            order = get_order(symbol, order_id)
+        except Exception as e:
+            log.error(f"  {symbol}#{order_id} 查 order 失败：{e}")
+            return None
+    avg_price = float(order.get("avgPrice", 0) or 0)
+    executed  = float(order.get("executedQty", 0) or 0)
     update_ms = int(order.get("updateTime", time.time() * 1000))
     if avg_price == 0 or executed == 0:
-        log.warning(f"  {symbol}#{order_id} 成交数据为 0，跳过 INSERT")
+        log.warning(f"  {symbol}#{order_id} 暂无成交数据（status={order.get('status')}）→ 留待开仓后对账补录")
         return None
     open_time = datetime.fromtimestamp(update_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
     row = {
@@ -203,15 +206,16 @@ def run_open_cycle(anchor: datetime):
             status = order.get("status", "UNKNOWN")
             if status == "FILLED":
                 log.info(f"  {sym} ✅ 已成交")
-                insert_open_record_8h(sym, data["side_label"], data["orderId"], anchor_ts)
+                insert_open_record_8h(sym, data["side_label"], data["orderId"], anchor_ts, order=order)
                 continue
             if status == "PARTIALLY_FILLED":
                 still[sym] = data
                 continue
             cancel_order(sym, data["orderId"])
             time.sleep(0.3)
-            if get_order(sym, data["orderId"]).get("status") == "FILLED":
-                insert_open_record_8h(sym, data["side_label"], data["orderId"], anchor_ts)
+            o2 = get_order(sym, data["orderId"])
+            if o2.get("status") == "FILLED":
+                insert_open_record_8h(sym, data["side_label"], data["orderId"], anchor_ts, order=o2)
                 continue
             ref = price_map.get(sym) or 0
             if not ref:
@@ -257,7 +261,33 @@ def run_open_cycle(anchor: datetime):
             insert_open_from_position(sym, data["side_label"], anchor_ts)
             time.sleep(0.15)
 
+    # ── 开仓后对账兜底：凡本批次开过、账户有仓但 DB 没记录的，按实际持仓补录 ──
+    # 防止币安查单状态延迟(FILLED→NEW)导致的漏记 → 隐形孤儿仓（永远不会被平）。
+    try:
+        reconcile_open_batch(targets, anchor_ts)
+    except Exception as e:
+        log.error(f"开仓后对账异常：{e}", exc_info=True)
+
     log.info(f"═══ 开仓周期结束 {anchor_ts} ═══\n")
+
+
+def reconcile_open_batch(targets: list, anchor_ts: str):
+    """开仓周期结束后核对：本批次选中的每个 symbol，若账户有持仓但 DB 里本 anchor 没记录，
+    就按账户实际持仓补录，确保 “交易所有仓 = DB 有记录”。"""
+    try:
+        positions = auth_get("/fapi/v2/positionRisk")
+    except Exception as e:
+        log.warning(f"开仓对账取持仓失败：{e}")
+        return
+    held = {p["symbol"] for p in positions if float(p["positionAmt"]) != 0}
+    recorded = {}   # side_label -> 本 anchor 已入库的 symbol 集合
+    for _, side_label in targets:
+        if side_label not in recorded:
+            recorded[side_label] = {r["symbol"] for r in db.get_open_log_8h_by_anchor_side(anchor_ts, side_label)}
+    for sym, side_label in targets:
+        if sym in held and sym not in recorded[side_label]:
+            log.warning(f"  开仓对账：{sym} 账户有仓但本批次未入库 → 按实际持仓补录")
+            insert_open_from_position(sym, side_label, anchor_ts)
 
 
 def _opened_already(anchor_ts: str, side_label: str) -> bool:
