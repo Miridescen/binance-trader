@@ -1,5 +1,8 @@
 # 环境变量（含 API Key，绝对不能提交）
 .env
+.env.*
+# 但保留不含密钥的模板
+!.env.*.example
 
 # Python
 __pycache__/
