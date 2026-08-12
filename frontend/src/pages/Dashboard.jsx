@@ -138,7 +138,7 @@ function AccountCard({ tag, tagColor, subtitle, rt }) {
       </span>
     }>
       {!configured ? (
-        <span style={{ color: '#999' }}>未配置子账号密钥（.env.sub24h）</span>
+        <span style={{ color: '#999' }}>未配置密钥（.env.sub24h）</span>
       ) : hasError ? (
         <span style={{ color: '#cf1322' }}>查询失败：{String(rt.error).slice(0, 60)}</span>
       ) : (
@@ -294,17 +294,17 @@ export default function Dashboard() {
       {/* 顶部：两个账户余额卡 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12}>
-          <AccountCard tag="主账号" tagColor="blue" subtitle="8h 实盘" rt={rt} />
+          <AccountCard tag="子项号1" tagColor="blue" subtitle="8h 实盘" rt={rt} />
         </Col>
         <Col xs={24} sm={12}>
-          <AccountCard tag="子账号" tagColor="purple" subtitle="24h 实盘" rt={rt24} />
+          <AccountCard tag="子项号2" tagColor="purple" subtitle="24h 实盘" rt={rt24} />
         </Col>
       </Row>
 
       {/* ── 8h（主账号）与 24h（子账号）左右并排；窄屏自动上下堆叠 ── */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          {sectionTitle('主账号 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h')}
+          {sectionTitle('子项号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h')}
           <PositionsBlock rt={rt} />
           <div style={{ marginBottom: 12 }}>
             <Space wrap>
@@ -317,7 +317,7 @@ export default function Dashboard() {
           <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
         </Col>
         <Col xs={24} lg={12}>
-          {sectionTitle('子账号 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h')}
+          {sectionTitle('子项号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h')}
           <PositionsBlock rt={rt24} />
           <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
         </Col>
