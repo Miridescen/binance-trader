@@ -301,23 +301,27 @@ export default function Dashboard() {
         </Col>
       </Row>
 
-      {/* ── 主账号 · 8h 实盘 ── */}
-      {sectionTitle('主账号 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h')}
-      <PositionsBlock rt={rt} />
-      <div style={{ marginBottom: 12 }}>
-        <Space wrap>
-          <span style={{ color: '#666' }}>按时段筛选：</span>
-          <Select size="small" style={{ minWidth: 140 }} value={timeFilter} onChange={setTimeFilter}
-            options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: t, value: t }))]} />
-          {timeFilter !== 'all' && <Tag color="blue">仅看 {timeFilter} 周期</Tag>}
-        </Space>
-      </div>
-      <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
-
-      {/* ── 子账号 · 24h 实盘 ── */}
-      {sectionTitle('子账号 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h')}
-      <PositionsBlock rt={rt24} />
-      <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
+      {/* ── 8h（主账号）与 24h（子账号）左右并排；窄屏自动上下堆叠 ── */}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={12}>
+          {sectionTitle('主账号 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h')}
+          <PositionsBlock rt={rt} />
+          <div style={{ marginBottom: 12 }}>
+            <Space wrap>
+              <span style={{ color: '#666' }}>按时段筛选：</span>
+              <Select size="small" style={{ minWidth: 140 }} value={timeFilter} onChange={setTimeFilter}
+                options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: t, value: t }))]} />
+              {timeFilter !== 'all' && <Tag color="blue">仅看 {timeFilter} 周期</Tag>}
+            </Space>
+          </div>
+          <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
+        </Col>
+        <Col xs={24} lg={12}>
+          {sectionTitle('子账号 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h')}
+          <PositionsBlock rt={rt24} />
+          <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
+        </Col>
+      </Row>
 
       <style>{`
         .row-profit td { background: #f6ffed !important; }
