@@ -405,5 +405,19 @@ def open_log_24h():
     return jsonify(_strip_id(db.get_open_log_24h_all()))
 
 
+@app.route("/api/open_log_24h/anchors")
+def open_log_24h_anchors():
+    """返回 24h 所有周期 anchor（按 open_anchor 分组）倒序 + 笔数"""
+    with db.get_conn() as conn:
+        rows = conn.execute("""
+            SELECT substr(open_anchor, 1, 16) AS anchor, COUNT(*) AS n
+            FROM open_log_24h
+            WHERE open_anchor IS NOT NULL AND open_anchor != ''
+            GROUP BY anchor
+            ORDER BY anchor DESC
+        """).fetchall()
+        return jsonify([{"anchor": r["anchor"], "n": r["n"]} for r in rows])
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)

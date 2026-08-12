@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Table, Card, Tag, Spin, Select, Space } from 'antd'
+import { Table, Card, Tag, Spin, Select, Space, Segmented } from 'antd'
 import axios from 'axios'
+
+// 账户 → 周期/记录接口前缀
+const ACCT_OPTIONS = [
+  { label: '子账号1 · 8h', value: '8h' },
+  { label: '子账号2 · 24h', value: '24h' },
+]
 
 function pnlColor(val) {
   const n = parseFloat(val)
@@ -75,15 +81,19 @@ const columns = [
 ]
 
 export default function OpenLog() {
+  const [acct, setAcct] = useState('8h')     // '8h'（子账号1）| '24h'（子账号2）
   const [anchors, setAnchors] = useState([])
   const [selected, setSelected] = useState(null)
   const [rows, setRows] = useState([])
   const [loadingAnchors, setLoadingAnchors] = useState(true)
   const [loadingRows, setLoadingRows] = useState(false)
 
-  // 拉周期下拉
+  // 切账户 → 重拉周期下拉
   useEffect(() => {
-    axios.get('/api/open_log_8h/anchors')
+    setLoadingAnchors(true)
+    setSelected(null)
+    setRows([])
+    axios.get(`/api/open_log_${acct}/anchors`)
       .then(res => {
         setAnchors(res.data || [])
         if (res.data && res.data.length > 0) {
@@ -91,7 +101,7 @@ export default function OpenLog() {
         }
       })
       .finally(() => setLoadingAnchors(false))
-  }, [])
+  }, [acct])
 
   // 选周期后拉该周期数据
   useEffect(() => {
@@ -100,10 +110,10 @@ export default function OpenLog() {
       return
     }
     setLoadingRows(true)
-    axios.get(`/api/open_log_8h?anchor=${encodeURIComponent(selected)}`)
+    axios.get(`/api/open_log_${acct}?anchor=${encodeURIComponent(selected)}`)
       .then(res => setRows((res.data || []).map((r, i) => ({ ...r, key: i }))))
       .finally(() => setLoadingRows(false))
-  }, [selected])
+  }, [acct, selected])
 
   // 该周期合计
   const sum = arr => arr.reduce((a, b) => a + b, 0)
@@ -117,10 +127,11 @@ export default function OpenLog() {
     <div>
       <Card size="small" style={{ marginBottom: 12 }}>
         <Space wrap>
-          <span>选择周期：</span>
+          <Segmented options={ACCT_OPTIONS} value={acct} onChange={setAcct} />
+          <span style={{ marginLeft: 8 }}>选择周期：</span>
           <Select
             style={{ minWidth: 240 }}
-            placeholder={loadingAnchors ? '加载中...' : '请选择'}
+            placeholder={loadingAnchors ? '加载中...' : (anchors.length === 0 ? '暂无周期' : '请选择')}
             loading={loadingAnchors}
             value={selected}
             onChange={setSelected}
@@ -148,9 +159,9 @@ export default function OpenLog() {
             columns={columns}
             dataSource={rows}
             pagination={{
-              pageSize: 50,
+              pageSize: 10,
               showSizeChanger: true,
-              pageSizeOptions: [20, 50, 100],
+              pageSizeOptions: [10, 20, 50, 100],
               showTotal: total => `共 ${total} 条`,
             }}
             scroll={{ x: 'max-content' }}
@@ -162,7 +173,7 @@ export default function OpenLog() {
               if (pnl < 0) return 'row-loss'
               return ''
             }}
-            locale={{ emptyText: anchors.length === 0 ? '暂无任何 8h 周期开仓数据' : '该周期暂无数据' }}
+            locale={{ emptyText: anchors.length === 0 ? `暂无任何 ${acct} 周期开仓数据` : '该周期暂无数据' }}
           />
         </Spin>
       </Card>
