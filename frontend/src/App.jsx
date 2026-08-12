@@ -8,6 +8,7 @@ import PositionsDetail from './pages/PositionsDetail'
 import DailySummary from './pages/DailySummary'
 import BtcTrend from './pages/BtcTrend'
 import VirtualLogWindow from './pages/VirtualLog4h'
+import BinanceLogo from './components/BinanceLogo'
 import 'antd/dist/reset.css'
 import './App.css'
 
@@ -40,7 +41,11 @@ function LoginPage({ onLogin }) {
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>
-      <Card style={{ width: 320 }} title="Binance Trader">
+      <Card style={{ width: 320 }} title={
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BinanceLogo size={20} />Binance Trader
+        </span>
+      }>
         <Input.Password
           prefix={<LockOutlined />}
           placeholder="请输入访问密码"
@@ -83,8 +88,9 @@ export default function App() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px', gap: 32 }}>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap' }}>
-          Binance Trader
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap',
+                       display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BinanceLogo size={22} />Binance Trader
         </span>
         <Menu
           theme="dark"
