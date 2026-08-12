@@ -20,7 +20,7 @@ function PnlCell({ value, digits = 2 }) {
   )
 }
 
-// ── 实盘 4h 按周期分组的列 ──
+// ── 按周期分组的列（实盘 batch）──
 const batchColumns = [
   {
     title: '开仓时间',
@@ -70,7 +70,7 @@ const batchColumns = [
   },
 ]
 
-// ── 实时持仓表的列（不带方向列，按 side 已拆分到左右两栏）──
+// ── 实时持仓表的列 ──
 const positionColumns = [
   { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 100 },
   { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90,
@@ -94,7 +94,6 @@ function groupBatches(rows, sideFilter) {
   const filtered = rows.filter(r => r.side === sideFilter)
   const map = new Map()
   for (const r of filtered) {
-    // 优先 open_anchor，fallback open_time（兼容回填前的老数据）
     const k = (r.open_anchor || r.open_time || '').slice(0, 16)
     if (!map.has(k)) map.set(k, [])
     map.get(k).push(r)
@@ -125,25 +124,127 @@ function groupBatches(rows, sideFilter) {
   return batches
 }
 
+const sumPnl = arr => arr.reduce((a, p) => a + (parseFloat(p.unrealized_pnl) || 0), 0)
+
+// ── 一个账户的余额卡（余额 + 保证金两块）──
+function AccountCard({ tag, tagColor, subtitle, rt }) {
+  const configured = rt?.configured !== false
+  const hasError = configured && rt?.error
+  return (
+    <Card size="small" title={
+      <span>
+        <Tag color={tagColor}>{tag}</Tag>
+        <span style={{ color: '#999', fontSize: 12 }}>{subtitle}</span>
+      </span>
+    }>
+      {!configured ? (
+        <span style={{ color: '#999' }}>未配置子账号密钥（.env.sub24h）</span>
+      ) : hasError ? (
+        <span style={{ color: '#cf1322' }}>查询失败：{String(rt.error).slice(0, 60)}</span>
+      ) : (
+        <Row gutter={12}>
+          <Col span={12}>
+            <Statistic title="账户余额" value={rt?.balance ?? 0} precision={2} suffix="U"
+              prefix={<WalletOutlined />} valueStyle={{ color: '#1677ff', fontSize: 22 }} />
+          </Col>
+          <Col span={12}>
+            <Statistic title="保证金占用" value={rt?.margin_used ?? 0} precision={2} suffix="U"
+              prefix={<DollarOutlined />} valueStyle={{ color: '#fa8c16', fontSize: 22 }} />
+          </Col>
+        </Row>
+      )}
+    </Card>
+  )
+}
+
+// ── 一个账户的实时持仓块（跌幅榜-空）──
+function PositionsBlock({ rt }) {
+  const positions = (rt?.positions || []).map((p, i) => ({ ...p, key: i }))
+  const losers = positions.filter(p => p.side?.includes('跌幅'))
+  const others = positions.filter(p => !p.side?.includes('跌幅') && !p.side?.includes('涨幅'))
+  return (
+    <Card size="small" style={{ marginBottom: 12 }} title={
+      <span>实时持仓<span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{positions.length} 笔</span></span>
+    }>
+      <Card size="small" type="inner" title={
+        <span>
+          <Tag color="cyan">跌幅榜-空</Tag>
+          <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+            {losers.length} 笔  浮盈 <PnlCell value={sumPnl(losers)} />
+          </span>
+        </span>
+      }>
+        <Table
+          columns={positionColumns}
+          dataSource={losers}
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          size="small"
+          rowClassName={r => (r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : '')}
+          locale={{ emptyText: '无持仓' }}
+        />
+      </Card>
+      {others.length > 0 && (
+        <Card size="small" type="inner" title="其他" style={{ marginTop: 12 }}>
+          <Table columns={positionColumns} dataSource={others} pagination={false}
+            scroll={{ x: 'max-content' }} size="small" />
+        </Card>
+      )}
+    </Card>
+  )
+}
+
+// ── 一个账户的按周期分组表 ──
+function BatchBlock({ batches, netPnl, loading }) {
+  const title = (
+    <span>
+      <Tag color="cyan">跌幅榜-空</Tag>
+      <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+        {batches.length} 周期  净 <PnlCell value={netPnl} />
+      </span>
+    </span>
+  )
+  return (
+    <Spin spinning={loading}>
+      <Card size="small" title={title} style={{ marginBottom: 16 }}>
+        <Table
+          columns={batchColumns}
+          dataSource={batches}
+          pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100] }}
+          scroll={{ x: 'max-content' }}
+          size="small"
+          rowClassName={r => (r.net_pnl > 0 ? 'row-profit' : r.net_pnl < 0 ? 'row-loss' : '')}
+          locale={{ emptyText: '暂无记录' }}
+        />
+      </Card>
+    </Spin>
+  )
+}
+
 export default function Dashboard() {
-  const [rt, setRt] = useState(null)
-  const [logs, setLogs] = useState([])
+  const [rt, setRt] = useState(null)        // 主账号 8h
+  const [rt24, setRt24] = useState(null)     // 子账号 24h
+  const [logs, setLogs] = useState([])       // 8h open_log
+  const [logs24, setLogs24] = useState([])   // 24h open_log
   const [loadingRt, setLoadingRt] = useState(false)
   const [loadingLog, setLoadingLog] = useState(true)
   const [updatedRt, setUpdatedRt] = useState(null)
-  const [timeFilter, setTimeFilter] = useState('all') // 'all' | 'HH:MM'
+  const [timeFilter, setTimeFilter] = useState('all') // 8h 按时段筛选
 
-  // 一键刷新所有数据：账户/持仓 + 8h 实盘记录
   const fetchAll = async () => {
     setLoadingRt(true)
     setLoadingLog(true)
     try {
-      const [r1, r2] = await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         axios.get('/api/realtime'),
         axios.get('/api/open_log_8h'),
+        axios.get('/api/realtime_24h'),
+        axios.get('/api/open_log_24h'),
       ])
       if (!r1.data.error) setRt(r1.data)
       setLogs(r2.data || [])
+      setRt24(r3.data || null)
+      setLogs24(r4.data || [])
       setUpdatedRt(new Date().toLocaleTimeString())
     } catch (e) {}
     setLoadingRt(false)
@@ -151,51 +252,30 @@ export default function Dashboard() {
   }
   useEffect(() => { fetchAll() }, [])
 
-  const balance = rt?.balance ?? 0
-  const marginUsed = rt?.margin_used ?? 0
-  const positions = (rt?.positions || []).map((p, i) => ({ ...p, key: i }))
-  const gainerPositions = positions.filter(p => p.side?.includes('涨幅'))
-  const loserPositions  = positions.filter(p => p.side?.includes('跌幅'))
-  const otherPositions  = positions.filter(p => !p.side?.includes('涨幅') && !p.side?.includes('跌幅'))
-
-  const sumPnl = arr => arr.reduce((a, p) => a + (parseFloat(p.unrealized_pnl) || 0), 0)
-  const gainerPnl = sumPnl(gainerPositions)
-  const loserPnl  = sumPnl(loserPositions)
-
-  const allGainerBatches = useMemo(() => groupBatches(logs, '涨幅榜-空（无过滤）'), [logs])
-  const allLoserBatches  = useMemo(() => groupBatches(logs, '跌幅榜-空（无过滤）'), [logs])
-
-  // 该方向出现过的所有时段，按字典序排序
-  const allTimeOptions = useMemo(() => {
+  // 8h：按周期分组 + 时段筛选
+  const allLoserBatches8 = useMemo(() => groupBatches(logs, '跌幅榜-空（无过滤）'), [logs])
+  const timeOptions = useMemo(() => {
     const set = new Set()
-    for (const b of allGainerBatches) set.add(b.open_time_key.slice(11, 16))
-    for (const b of allLoserBatches)  set.add(b.open_time_key.slice(11, 16))
+    for (const b of allLoserBatches8) set.add(b.open_time_key.slice(11, 16))
     return [...set].sort()
-  }, [allGainerBatches, allLoserBatches])
-
+  }, [allLoserBatches8])
   const matchTime = b => timeFilter === 'all' || b.open_time_key.slice(11, 16) === timeFilter
-  const gainerBatches = allGainerBatches.filter(matchTime)
-  const loserBatches  = allLoserBatches.filter(matchTime)
+  const loserBatches8 = allLoserBatches8.filter(matchTime)
+  const net8 = loserBatches8.reduce((a, b) => a + b.net_pnl, 0)
 
-  const sum = arr => arr.reduce((a, b) => a + b, 0)
-  const gNet = sum(gainerBatches.map(b => b.net_pnl))
-  const lNet = sum(loserBatches.map(b => b.net_pnl))
+  // 24h：单窗口 00:30，无需时段筛选
+  const loserBatches24 = useMemo(() => groupBatches(logs24, '跌幅榜-空（无过滤）'), [logs24])
+  const net24 = loserBatches24.reduce((a, b) => a + b.net_pnl, 0)
 
-  const batchTitle = (label, color, batches, netPnl) => {
-    const n = batches.length
-    return (
-      <span>
-        <Tag color={color}>{label}</Tag>
-        <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-          {n} 周期  净 <PnlCell value={netPnl} />
-        </span>
-      </span>
-    )
-  }
+  const sectionTitle = (text, sub) => (
+    <div style={{ margin: '4px 0 12px', fontWeight: 600, fontSize: 15 }}>
+      {text} <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>{sub}</span>
+    </div>
+  )
 
   return (
     <div>
-      {/* 顶部刷新栏（粘性，滚到哪都能点；窄屏可换行不溢出） */}
+      {/* 顶部刷新栏 */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
         background: '#f0f2f5', padding: '8px 0', marginBottom: 8,
@@ -205,127 +285,39 @@ export default function Dashboard() {
         <span style={{ color: '#666', fontSize: 13 }}>
           {updatedRt ? `更新于 ${updatedRt}` : '未刷新'}
         </span>
-        <Button
-          type="primary"
-          icon={<ReloadOutlined />}
-          loading={loadingRt || loadingLog}
-          onClick={fetchAll}
-          style={{ flexShrink: 0 }}
-        >
+        <Button type="primary" icon={<ReloadOutlined />}
+          loading={loadingRt || loadingLog} onClick={fetchAll} style={{ flexShrink: 0 }}>
           刷新全部
         </Button>
       </div>
 
-      {/* 顶部：账户卡 */}
+      {/* 顶部：两个账户余额卡 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={12} md={12}>
-          <Card size="small">
-            <Statistic title="账户余额" value={balance} precision={2} suffix="U"
-              prefix={<WalletOutlined />} valueStyle={{ color: '#1677ff' }} />
-          </Card>
+        <Col xs={24} sm={12}>
+          <AccountCard tag="主账号" tagColor="blue" subtitle="8h 实盘" rt={rt} />
         </Col>
-        <Col xs={12} sm={12} md={12}>
-          <Card size="small">
-            <Statistic title="保证金占用" value={marginUsed} precision={2} suffix="U"
-              prefix={<DollarOutlined />} valueStyle={{ color: '#fa8c16' }} />
-          </Card>
+        <Col xs={24} sm={12}>
+          <AccountCard tag="子账号" tagColor="purple" subtitle="24h 实盘" rt={rt24} />
         </Col>
       </Row>
 
-      {/* 第二行：实时持仓（左右拆分） */}
-      <Card
-        size="small"
-        style={{ marginBottom: 16 }}
-        title={
-          <span>
-            实时持仓
-            <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
-              {positions.length} 笔
-            </span>
-          </span>
-        }
-      >
-        <Row gutter={[12, 12]}>
-          <Col xs={24}>
-            <Card size="small" type="inner" title={
-              <span>
-                <Tag color="cyan">跌幅榜-空</Tag>
-                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-                  {loserPositions.length} 笔  浮盈 <PnlCell value={loserPnl} />
-                </span>
-              </span>
-            }>
-              <Table
-                columns={positionColumns}
-                dataSource={loserPositions}
-                pagination={false}
-                scroll={{ x: 'max-content' }}
-                size="small"
-                rowClassName={r => {
-                  if (r.unrealized_pnl > 0) return 'row-profit'
-                  if (r.unrealized_pnl < 0) return 'row-loss'
-                  return ''
-                }}
-                locale={{ emptyText: '无' }}
-              />
-            </Card>
-          </Col>
-        </Row>
-        {otherPositions.length > 0 && (
-          <Card size="small" type="inner" title="其他" style={{ marginTop: 12 }}>
-            <Table
-              columns={positionColumns}
-              dataSource={otherPositions}
-              pagination={false}
-              scroll={{ x: 'max-content' }}
-              size="small"
-            />
-          </Card>
-        )}
-      </Card>
+      {/* ── 主账号 · 8h 实盘 ── */}
+      {sectionTitle('主账号 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h')}
+      <PositionsBlock rt={rt} />
+      <div style={{ marginBottom: 12 }}>
+        <Space wrap>
+          <span style={{ color: '#666' }}>按时段筛选：</span>
+          <Select size="small" style={{ minWidth: 140 }} value={timeFilter} onChange={setTimeFilter}
+            options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: t, value: t }))]} />
+          {timeFilter !== 'all' && <Tag color="blue">仅看 {timeFilter} 周期</Tag>}
+        </Space>
+      </div>
+      <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
 
-      {/* 第三行：8h 实盘按周期分组（跌幅榜-空 无过滤，+10U 提前平 / 否则跑满 8h） */}
-      <Spin spinning={loadingLog}>
-        <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 15 }}>
-          8h 实盘 <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 8h</span>
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <Space wrap>
-            <span style={{ color: '#666' }}>按时段筛选：</span>
-            <Select
-              size="small"
-              style={{ minWidth: 140 }}
-              value={timeFilter}
-              onChange={setTimeFilter}
-              options={[
-                { label: '全部时段', value: 'all' },
-                ...allTimeOptions.map(t => ({ label: t, value: t })),
-              ]}
-            />
-            {timeFilter !== 'all' && (
-              <Tag color="blue">仅看 {timeFilter} 周期</Tag>
-            )}
-          </Space>
-        </div>
-        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-          <Col xs={24}>
-            <Card size="small" title={batchTitle('跌幅榜-空', 'cyan', loserBatches, lNet)}>
-              <Table
-                columns={batchColumns}
-                dataSource={loserBatches}
-                pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100] }}
-                scroll={{ x: 'max-content' }}
-                size="small"
-                rowClassName={r => {
-                  if (r.net_pnl > 0) return 'row-profit'
-                  if (r.net_pnl < 0) return 'row-loss'
-                  return ''
-                }}
-              />
-            </Card>
-          </Col>
-        </Row>
-      </Spin>
+      {/* ── 子账号 · 24h 实盘 ── */}
+      {sectionTitle('子账号 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h')}
+      <PositionsBlock rt={rt24} />
+      <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
 
       <style>{`
         .row-profit td { background: #f6ffed !important; }

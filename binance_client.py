@@ -35,6 +35,18 @@ def auth_get(path: str, extra: dict = None):
     resp.raise_for_status()
     return resp.json()
 
+def auth_get_with(api_key: str, api_secret: str, path: str, extra: dict = None):
+    """用显式指定的密钥做签名 GET，用于同一进程内访问多个账号（如 API 服务同时读主账号与子账号）。
+    只读用途；不改动全局 API_KEY/API_SECRET。"""
+    params = {"timestamp": int(time.time() * 1000), **(extra or {})}
+    query = urlencode(params)
+    params["signature"] = hmac.new(api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
+    resp = requests.get(f"{BASE_URL}{path}",
+                        headers={"X-MBX-APIKEY": api_key}, params=params, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def auth_post(path: str, params: dict):
     params = dict(params)   # 避免修改调用方的 dict
     params["timestamp"] = int(time.time() * 1000)
