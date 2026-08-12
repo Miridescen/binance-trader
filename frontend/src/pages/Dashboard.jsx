@@ -145,7 +145,7 @@ function AccountCard({ tag, tagColor, subtitle, rt }) {
         <Row gutter={12}>
           <Col span={12}>
             <Statistic title="账户余额" value={rt?.balance ?? 0} precision={2} suffix="U"
-              prefix={<WalletOutlined />} valueStyle={{ color: '#1677ff', fontSize: 22 }} />
+              prefix={<WalletOutlined />} valueStyle={{ color: '#13c2c2', fontSize: 22 }} />
           </Col>
           <Col span={12}>
             <Statistic title="保证金占用" value={rt?.margin_used ?? 0} precision={2} suffix="U"
@@ -278,7 +278,7 @@ export default function Dashboard() {
       {/* 顶部刷新栏 */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
-        background: '#f0f2f5', padding: '8px 0', marginBottom: 8,
+        background: '#f5f7fa', padding: '8px 0', marginBottom: 8,
         display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
         gap: 8, flexWrap: 'wrap',
       }}>

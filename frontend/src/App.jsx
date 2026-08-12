@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Layout, Menu, Input, Button, Card } from 'antd'
+import { Layout, Menu, Input, Button, Card, ConfigProvider } from 'antd'
 import { Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { DashboardOutlined, FundOutlined, UnorderedListOutlined, ExperimentOutlined, BarChartOutlined, LineChartOutlined, LockOutlined } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
@@ -15,6 +15,29 @@ import './App.css'
 const { Header, Content } = Layout
 
 const ACCESS_PASSWORD = 'mu824810056'
+
+// 全站主题：青绿(teal)主色 + 浅色清爽 + 柔和圆角
+const THEME = {
+  token: {
+    colorPrimary: '#13c2c2',
+    colorInfo: '#13c2c2',
+    colorLink: '#13a8a8',
+    colorLinkHover: '#20c5c5',
+    borderRadius: 8,
+    colorBgLayout: '#f5f7fa',
+    fontSize: 14,
+  },
+  components: {
+    Layout: { headerBg: '#ffffff' },
+    Menu: {
+      horizontalItemSelectedColor: '#13c2c2',
+      itemSelectedColor: '#13c2c2',
+      itemSelectedBg: '#e6fffb',
+    },
+    Button: { primaryShadow: 'none' },
+    Card: { headerBg: 'transparent' },
+  },
+}
 
 const menuItems = [
   { key: '/',                  icon: <DashboardOutlined />,      label: 'Dashboard' },
@@ -40,7 +63,7 @@ function LoginPage({ onLogin }) {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f5f7fa' }}>
       <Card style={{ width: 320 }} title={
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <BinanceLogo size={20} />Binance Trader
@@ -82,38 +105,48 @@ export default function App() {
   }, [searchParams])
 
   if (!authed) {
-    return <LoginPage onLogin={() => setAuthed(true)} />
+    return (
+      <ConfigProvider theme={THEME}>
+        <LoginPage onLogin={() => setAuthed(true)} />
+      </ConfigProvider>
+    )
   }
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px', gap: 32 }}>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap',
-                       display: 'flex', alignItems: 'center', gap: 8 }}>
-          <BinanceLogo size={22} />Binance Trader
-        </span>
-        <Menu
-          theme="dark"
-          mode="horizontal"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-          style={{ flex: 1, minWidth: 0 }}
-        />
-      </Header>
-      <Content style={{ padding: 24 }}>
-        <Routes>
-          <Route path="/"           element={<Dashboard />} />
-          <Route path="/openlog"    element={<OpenLog />} />
-          <Route path="/daily-summary"     element={<DailySummary />} />
-          <Route path="/virtuallog-4h"     element={<VirtualLogWindow window="4h" />} />
-          <Route path="/virtuallog-8h"     element={<VirtualLogWindow window="8h" />} />
-          <Route path="/virtuallog-12h"    element={<VirtualLogWindow window="12h" />} />
-          <Route path="/virtuallog-24h"    element={<VirtualLogWindow window="24h" />} />
-          <Route path="/positions-detail" element={<PositionsDetail />} />
-          <Route path="/btc-trend"       element={<BtcTrend />} />
-        </Routes>
-      </Content>
-    </Layout>
+    <ConfigProvider theme={THEME}>
+      <Layout style={{ minHeight: '100vh' }}>
+        <Header style={{
+          display: 'flex', alignItems: 'center', padding: '0 24px', gap: 32,
+          background: '#fff', borderBottom: '1px solid #eef0f2',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)', position: 'sticky', top: 0, zIndex: 20,
+        }}>
+          <span style={{ color: '#1f2329', fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap',
+                         display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BinanceLogo size={22} />Binance Trader
+          </span>
+          <Menu
+            theme="light"
+            mode="horizontal"
+            selectedKeys={[location.pathname]}
+            items={menuItems}
+            onClick={({ key }) => navigate(key)}
+            style={{ flex: 1, minWidth: 0, borderBottom: 'none' }}
+          />
+        </Header>
+        <Content style={{ padding: 24 }}>
+          <Routes>
+            <Route path="/"           element={<Dashboard />} />
+            <Route path="/openlog"    element={<OpenLog />} />
+            <Route path="/daily-summary"     element={<DailySummary />} />
+            <Route path="/virtuallog-4h"     element={<VirtualLogWindow window="4h" />} />
+            <Route path="/virtuallog-8h"     element={<VirtualLogWindow window="8h" />} />
+            <Route path="/virtuallog-12h"    element={<VirtualLogWindow window="12h" />} />
+            <Route path="/virtuallog-24h"    element={<VirtualLogWindow window="24h" />} />
+            <Route path="/positions-detail" element={<PositionsDetail />} />
+            <Route path="/btc-trend"       element={<BtcTrend />} />
+          </Routes>
+        </Content>
+      </Layout>
+    </ConfigProvider>
   )
 }
