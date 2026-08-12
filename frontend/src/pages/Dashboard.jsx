@@ -210,7 +210,7 @@ function BatchBlock({ batches, netPnl, loading }) {
         <Table
           columns={batchColumns}
           dataSource={batches}
-          pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100] }}
+          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 30, 50] }}
           scroll={{ x: 'max-content' }}
           size="small"
           rowClassName={r => (r.net_pnl > 0 ? 'row-profit' : r.net_pnl < 0 ? 'row-loss' : '')}
