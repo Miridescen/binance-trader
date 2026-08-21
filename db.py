@@ -333,6 +333,13 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_open_log_24h_anchor ON open_log_24h(open_anchor);
         CREATE INDEX IF NOT EXISTS idx_open_log_24h_symbol ON open_log_24h(symbol);
 
+        -- 策略自动开单开关（key=策略标识，如 real_8h / real_24h；缺行=默认开启）
+        CREATE TABLE IF NOT EXISTS strategy_switch (
+            key         TEXT PRIMARY KEY,
+            enabled     INTEGER NOT NULL DEFAULT 1,
+            updated_at  TEXT
+        );
+
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -878,6 +885,31 @@ def get_open_log_24h_pending_writeback() -> list[dict]:
             "AND unrealized_pnl IS NULL ORDER BY id"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── strategy_switch 操作（自动开单开关，缺行=默认开启）──────────────
+
+def get_switch(key: str, default: bool = True) -> bool:
+    """返回某策略的自动开单开关；无记录时返回 default（默认开启）。"""
+    with get_conn() as conn:
+        r = conn.execute("SELECT enabled FROM strategy_switch WHERE key = ?", (key,)).fetchone()
+        return default if r is None else bool(r["enabled"])
+
+
+def set_switch(key: str, enabled: bool):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO strategy_switch (key, enabled, updated_at) "
+            "VALUES (?, ?, datetime('now','localtime')) "
+            "ON CONFLICT(key) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at",
+            (key, 1 if enabled else 0),
+        )
+
+
+def get_all_switches() -> dict:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT key, enabled FROM strategy_switch").fetchall()
+        return {r["key"]: bool(r["enabled"]) for r in rows}
 
 
 # ── virtual_log_{4h,8h,12h} / virtual_detail_{4h,8h,12h} 通用操作 ─────────────

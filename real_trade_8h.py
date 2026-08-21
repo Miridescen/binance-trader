@@ -52,6 +52,8 @@ log = logging.getLogger("real_8h")
 
 LIVE = os.environ.get("REAL_8H_LIVE") == "1"
 
+SWITCH_KEY = "real_8h"   # 自动开单开关标识（看板可切换；关闭仅跳过开新仓，监控/平仓照常）
+
 # ── 策略参数 ──
 WINDOW_HOURS      = 8
 TARGET_GROUP_PNL  = 16.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（2026-07 由 10 调至 16，见 CHANGELOG）
@@ -583,11 +585,16 @@ def main():
                 else:
                     do_open = (anchor_ts != last_open_anchor)
                 if do_open:
-                    last_open_anchor = anchor_ts
-                    try:
-                        run_open_cycle(anchor)
-                    except Exception as e:
-                        log.error(f"开仓周期异常：{e}", exc_info=True)
+                    if not db.get_switch(SWITCH_KEY):
+                        if last_open_anchor != anchor_ts:
+                            log.info(f"[自动开单已关闭] {anchor_ts} 本周期跳过开仓（持仓监控/平仓照常）")
+                            last_open_anchor = anchor_ts
+                    else:
+                        last_open_anchor = anchor_ts
+                        try:
+                            run_open_cycle(anchor)
+                        except Exception as e:
+                            log.error(f"开仓周期异常：{e}", exc_info=True)
 
             # 2) 监控所有 batch（+10U / 窗口末）
             try:

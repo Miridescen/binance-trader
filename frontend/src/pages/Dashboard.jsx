@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, Select, Space } from 'antd'
+import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, Select, Space, Switch, message } from 'antd'
 import { ReloadOutlined, WalletOutlined, DollarOutlined } from '@ant-design/icons'
 import axios from 'axios'
 
@@ -230,27 +230,43 @@ export default function Dashboard() {
   const [loadingLog, setLoadingLog] = useState(true)
   const [updatedRt, setUpdatedRt] = useState(null)
   const [timeFilter, setTimeFilter] = useState('all') // 8h 按时段筛选
+  const [switches, setSwitches] = useState({ real_8h: true, real_24h: true }) // 自动开单开关
 
   const fetchAll = async () => {
     setLoadingRt(true)
     setLoadingLog(true)
     try {
-      const [r1, r2, r3, r4] = await Promise.all([
+      const [r1, r2, r3, r4, r5] = await Promise.all([
         axios.get('/api/realtime'),
         axios.get('/api/open_log_8h'),
         axios.get('/api/realtime_24h'),
         axios.get('/api/open_log_24h'),
+        axios.get('/api/switches'),
       ])
       if (!r1.data.error) setRt(r1.data)
       setLogs(r2.data || [])
       setRt24(r3.data || null)
       setLogs24(r4.data || [])
+      if (r5.data && !r5.data.error) setSwitches(r5.data)
       setUpdatedRt(new Date().toLocaleTimeString())
     } catch (e) {}
     setLoadingRt(false)
     setLoadingLog(false)
   }
   useEffect(() => { fetchAll() }, [])
+
+  // 切换某策略的自动开单开关（乐观更新，失败回滚）
+  const toggleSwitch = async (key, val) => {
+    setSwitches(s => ({ ...s, [key]: val }))
+    try {
+      await axios.post('/api/switch', { key, enabled: val })
+      if (val) message.success('已开启自动开单：下个周期恢复开仓')
+      else message.info('已关闭自动开单：下个周期不再开新仓（已有持仓的监控/平仓照常）')
+    } catch (e) {
+      setSwitches(s => ({ ...s, [key]: !val }))
+      message.error('切换失败，请重试')
+    }
+  }
 
   // 8h：按周期分组 + 时段筛选
   const allLoserBatches8 = useMemo(() => groupBatches(logs, '跌幅榜-空（无过滤）'), [logs])
@@ -267,9 +283,17 @@ export default function Dashboard() {
   const loserBatches24 = useMemo(() => groupBatches(logs24, '跌幅榜-空（无过滤）'), [logs24])
   const net24 = loserBatches24.reduce((a, b) => a + b.net_pnl, 0)
 
-  const sectionTitle = (text, sub) => (
-    <div style={{ margin: '4px 0 12px', fontWeight: 600, fontSize: 15 }}>
-      {text} <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>{sub}</span>
+  const sectionHeader = (text, sub, switchKey) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '4px 0 12px' }}>
+      <div style={{ fontWeight: 600, fontSize: 15 }}>
+        {text} <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>{sub}</span>
+      </div>
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+                     fontSize: 13, color: switches[switchKey] === false ? '#cf1322' : '#666' }}>
+        自动开单
+        <Switch size="small" checked={switches[switchKey] !== false}
+          onChange={v => toggleSwitch(switchKey, v)} />
+      </span>
     </div>
   )
 
@@ -304,7 +328,7 @@ export default function Dashboard() {
       {/* ── 8h（主账号）与 24h（子账号）左右并排；窄屏自动上下堆叠 ── */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          {sectionTitle('子账号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h')}
+          {sectionHeader('子账号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h', 'real_8h')}
           <PositionsBlock rt={rt} />
           <div style={{ marginBottom: 12 }}>
             <Space wrap>
@@ -317,7 +341,7 @@ export default function Dashboard() {
           <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
         </Col>
         <Col xs={24} lg={12}>
-          {sectionTitle('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h')}
+          {sectionHeader('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h', 'real_24h')}
           <PositionsBlock rt={rt24} />
           <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
         </Col>

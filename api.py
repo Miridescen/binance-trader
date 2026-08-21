@@ -405,6 +405,29 @@ def open_log_24h():
     return jsonify(_strip_id(db.get_open_log_24h_all()))
 
 
+# 已知的自动开单开关（前端显示这些；缺行=默认开启）
+SWITCH_KEYS = ["real_8h", "real_24h"]
+
+
+@app.route("/api/switches")
+def get_switches():
+    """返回各策略自动开单开关状态（缺记录=默认 true/开启）。"""
+    saved = db.get_all_switches()
+    return jsonify({k: saved.get(k, True) for k in SWITCH_KEYS})
+
+
+@app.route("/api/switch", methods=["POST"])
+def set_switch():
+    """切换某策略自动开单开关。body: {key, enabled(bool)}"""
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get("key")
+    enabled = data.get("enabled")
+    if key not in SWITCH_KEYS or not isinstance(enabled, bool):
+        return jsonify({"error": "参数错误：key 需为已知策略，enabled 需为布尔"}), 400
+    db.set_switch(key, enabled)
+    return jsonify({"ok": True, "key": key, "enabled": enabled})
+
+
 @app.route("/api/open_log_24h/anchors")
 def open_log_24h_anchors():
     """返回 24h 所有周期 anchor（按 open_anchor 分组）倒序 + 笔数"""
