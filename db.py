@@ -340,6 +340,23 @@ def init_db():
             updated_at  TEXT
         );
 
+        -- 模拟盘组级汇总（物化，增量维护；每个 窗口×开仓时段×方向 一行，收尾即写死）
+        -- 供模拟盘页“求和 + 分页”直接读，避免每次在订单大表 + detail 巨表上重算
+        CREATE TABLE IF NOT EXISTS virtual_group_summary (
+            window          TEXT,
+            open_time       TEXT,
+            side            TEXT,
+            window_end      TEXT,
+            n_orders        INTEGER,
+            n_hit           INTEGER,
+            n_timed         INTEGER,
+            sum_pnl_actual  REAL,
+            sum_pnl_if_held REAL,
+            close_reason    TEXT,
+            PRIMARY KEY (window, open_time, side)
+        );
+        CREATE INDEX IF NOT EXISTS idx_vgs_window_open ON virtual_group_summary(window, open_time);
+
         -- 每日汇总（实盘+虚拟盘各 side 的每日 PnL）
         CREATE TABLE IF NOT EXISTS daily_summary (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -910,6 +927,156 @@ def get_all_switches() -> dict:
     with get_conn() as conn:
         rows = conn.execute("SELECT key, enabled FROM strategy_switch").fetchall()
         return {r["key"]: bool(r["enabled"]) for r in rows}
+
+
+# ── virtual_group_summary（组级汇总，增量物化，供模拟盘页分页/求和）──────────────
+
+def _virtual_group_held(conn, det_t, log_t, open_time, side, fallback):
+    """一个组“走完窗口”值 = 该组最后一次快照的合计浮盈（detail 巨表查询，只在收尾时算一次）。"""
+    r = conn.execute(
+        f"""SELECT SUM(d.unrealized_pnl) AS s
+            FROM {det_t} d JOIN {log_t} l ON d.log_id = l.id
+            WHERE l.open_time = ? AND l.side = ?
+            GROUP BY d.time ORDER BY d.time DESC LIMIT 1""",
+        (open_time, side)
+    ).fetchone()
+    return r["s"] if r and r["s"] is not None else fallback
+
+
+def refresh_virtual_summaries(window: str) -> int:
+    """把已收尾（window_end 已过且组内全部平仓）但尚未汇总的组，增量写入 virtual_group_summary。
+    返回新增组数。贵的 detail「走完窗口」查询每组只在此算一次，之后读汇总表即可。"""
+    log_t = f"virtual_log_{window}"
+    det_t = f"virtual_detail_{window}"
+    timed = f"{window}_timed"
+    with get_conn() as conn:
+        done = {(r["open_time"], r["side"]) for r in conn.execute(
+            "SELECT open_time, side FROM virtual_group_summary WHERE window = ?", (window,)
+        ).fetchall()}
+        cand = conn.execute(f"""
+            SELECT open_time, side, MAX(window_end) AS window_end, COUNT(*) AS n_orders,
+                   SUM(CASE WHEN close_reason = '组内+10u' THEN 1 ELSE 0 END) AS n_hit,
+                   SUM(CASE WHEN close_reason = ? THEN 1 ELSE 0 END) AS n_timed,
+                   SUM(unrealized_pnl) AS sum_actual,
+                   MAX(close_reason) AS close_reason,
+                   SUM(CASE WHEN close_time IS NULL OR close_time = '' THEN 1 ELSE 0 END) AS n_open
+            FROM {log_t}
+            WHERE window_end IS NOT NULL AND window_end != ''
+              AND window_end <= datetime('now','localtime')
+            GROUP BY open_time, side
+        """, (timed,)).fetchall()
+        new_rows = []
+        for g in cand:
+            if (g["open_time"], g["side"]) in done:
+                continue
+            if g["n_open"] and g["n_open"] > 0:
+                continue  # 收尾延迟，下轮再补
+            if g["n_hit"] and g["n_hit"] > 0:
+                held = _virtual_group_held(conn, det_t, log_t, g["open_time"], g["side"], g["sum_actual"])
+            else:
+                held = g["sum_actual"]   # 全定时平：实际就是走完窗口
+            new_rows.append((window, g["open_time"], g["side"], g["window_end"],
+                             g["n_orders"], g["n_hit"], g["n_timed"],
+                             g["sum_actual"], held, g["close_reason"]))
+        if new_rows:
+            conn.executemany("""
+                INSERT OR REPLACE INTO virtual_group_summary
+                (window, open_time, side, window_end, n_orders, n_hit, n_timed,
+                 sum_pnl_actual, sum_pnl_if_held, close_reason)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, new_rows)
+        return len(new_rows)
+
+
+def get_virtual_summary_totals(window: str, time: str = None) -> list:
+    """各方向累计（读汇总表，瞬间）：n_groups / 实际 / 走完窗口 / +10u组 / 定平组。"""
+    where = "WHERE window = ?"
+    params = [window]
+    if time:
+        where += " AND substr(open_time, 12, 5) = ?"
+        params.append(time)
+    with get_conn() as conn:
+        rows = conn.execute(f"""
+            SELECT side, COUNT(*) AS n_groups,
+                   COALESCE(SUM(sum_pnl_actual), 0)  AS sum_actual,
+                   COALESCE(SUM(sum_pnl_if_held), 0) AS sum_held,
+                   SUM(CASE WHEN n_hit > 0 THEN 1 ELSE 0 END) AS n_hit_groups,
+                   SUM(CASE WHEN n_hit = 0 AND n_timed > 0 THEN 1 ELSE 0 END) AS n_timed_groups
+            FROM virtual_group_summary {where}
+            GROUP BY side
+        """, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_virtual_summary_page(window, side=None, time=None,
+                             sort="open_time", order="desc", page=1, page_size=30):
+    """分页读汇总表（已收尾组）。返回 (total, rows)。"""
+    where = "WHERE window = ?"
+    params = [window]
+    if side:
+        where += " AND side = ?"; params.append(side)
+    if time:
+        where += " AND substr(open_time, 12, 5) = ?"; params.append(time)
+    sort_col = {"open_time": "open_time",
+                "sum_pnl_actual": "sum_pnl_actual",
+                "sum_pnl_if_held": "sum_pnl_if_held"}.get(sort, "open_time")
+    order_dir = "ASC" if str(order).lower() == "asc" else "DESC"
+    with get_conn() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM virtual_group_summary {where}", params
+        ).fetchone()["c"]
+        rows = conn.execute(f"""
+            SELECT open_time, window_end, side, n_orders, n_hit, n_timed,
+                   sum_pnl_actual, sum_pnl_if_held, close_reason
+            FROM virtual_group_summary {where}
+            ORDER BY {sort_col} {order_dir}, side
+            LIMIT ? OFFSET ?
+        """, params + [page_size, (page - 1) * page_size]).fetchall()
+        return total, [dict(r) for r in rows]
+
+
+def get_virtual_summary_times(window: str) -> list:
+    """该窗口出现过的开仓时段（HH:MM）去重列表，供前端时段筛选下拉。"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT substr(open_time, 12, 5) AS t FROM virtual_group_summary "
+            "WHERE window = ? AND open_time IS NOT NULL AND open_time != '' ORDER BY t",
+            (window,)
+        ).fetchall()
+        return [r["t"] for r in rows if r["t"]]
+
+
+def get_virtual_inprogress(window: str) -> list:
+    """进行中的组：window_end 未到、但已整组提前平仓（+10u）——实际已定，走完窗口值仍在动。
+    数量极少（当前窗口那几个），实时算。"""
+    log_t = f"virtual_log_{window}"
+    det_t = f"virtual_detail_{window}"
+    timed = f"{window}_timed"
+    with get_conn() as conn:
+        cand = conn.execute(f"""
+            SELECT open_time, side, MAX(window_end) AS window_end, COUNT(*) AS n_orders,
+                   SUM(CASE WHEN close_reason = '组内+10u' THEN 1 ELSE 0 END) AS n_hit,
+                   SUM(CASE WHEN close_reason = ? THEN 1 ELSE 0 END) AS n_timed,
+                   SUM(unrealized_pnl) AS sum_actual,
+                   MAX(close_reason) AS close_reason,
+                   SUM(CASE WHEN close_time IS NULL OR close_time = '' THEN 1 ELSE 0 END) AS n_open
+            FROM {log_t}
+            WHERE window_end IS NOT NULL AND window_end != ''
+              AND window_end > datetime('now','localtime')
+            GROUP BY open_time, side
+        """, (timed,)).fetchall()
+        out = []
+        for g in cand:
+            if g["n_open"] and g["n_open"] > 0:
+                continue  # 还没整组平（含全开仓中的窗口）→ 不显示，与旧行为一致
+            held = _virtual_group_held(conn, det_t, log_t, g["open_time"], g["side"], g["sum_actual"])
+            out.append({
+                "open_time": g["open_time"], "window_end": g["window_end"], "side": g["side"],
+                "n_orders": g["n_orders"], "n_hit": g["n_hit"], "n_timed": g["n_timed"],
+                "sum_pnl_actual": g["sum_actual"], "sum_pnl_if_held": held,
+                "close_reason": g["close_reason"],
+            })
+        return out
 
 
 # ── virtual_log_{4h,8h,12h} / virtual_detail_{4h,8h,12h} 通用操作 ─────────────

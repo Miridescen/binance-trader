@@ -151,67 +151,75 @@ def virtual_detail_window():
     return jsonify(_strip_id(rows))
 
 
-_groups_cache = {}   # window -> (version, groups_json)
+_summary_ver = {}   # window -> version（已平仓行数+最新平仓时间），没变就跳过增量刷新
+
+
+def _maybe_refresh_summary(w):
+    """仅当有新平仓（版本变化）时才跑一次增量物化，把新收尾的组写进汇总表。"""
+    log_table = f"virtual_log_{w}"
+    with db.get_conn() as conn:
+        v = conn.execute(
+            f"SELECT COUNT(*) AS n, MAX(close_time) AS mx FROM {log_table} WHERE close_time IS NOT NULL"
+        ).fetchone()
+    ver = (v["n"], v["mx"])
+    if _summary_ver.get(w) != ver:
+        try:
+            db.refresh_virtual_summaries(w)
+        except Exception:
+            pass
+        _summary_ver[w] = ver
+
+
+@app.route("/api/virtual_totals")
+def virtual_totals():
+    """各方向累计（读物化汇总表，瞬间）。?window=4h/8h/12h/24h&time=HH:MM(可选)"""
+    w = _validate_window(request.args.get("window", "4h"))
+    if w is None:
+        return jsonify({"error": "invalid window"}), 400
+    time = request.args.get("time") or None
+    _maybe_refresh_summary(w)
+    return jsonify(db.get_virtual_summary_totals(w, time))
+
+
+@app.route("/api/virtual_inprogress")
+def virtual_inprogress():
+    """进行中的组（+10u 已提前平但窗口未结束），数量极少，实时算。?window=..."""
+    w = _validate_window(request.args.get("window", "4h"))
+    if w is None:
+        return jsonify({"error": "invalid window"}), 400
+    return jsonify(db.get_virtual_inprogress(w))
+
+
+@app.route("/api/virtual_times")
+def virtual_times():
+    """该窗口出现过的开仓时段（HH:MM）列表，供时段筛选下拉。?window=..."""
+    w = _validate_window(request.args.get("window", "4h"))
+    if w is None:
+        return jsonify({"error": "invalid window"}), 400
+    _maybe_refresh_summary(w)
+    return jsonify(db.get_virtual_summary_times(w))
 
 
 @app.route("/api/virtual_groups")
 def virtual_groups():
-    """按 (open_time, side) 聚合的组级统计：用于"+10u 触发 vs 走完窗口"对照。
-       ?window=4h/8h/12h/24h
-
-    智能缓存：已平仓组的"走完窗口"值一旦平仓即固定，只有新组平仓时才变。
-    用"已平仓行数 + 最新平仓时间"当版本号，没变则直接返回缓存（秒开）。"""
+    """分页读组级汇总（已收尾组）。
+    ?window=4h/8h/12h/24h&side=&time=HH:MM&sort=open_time|sum_pnl_actual|sum_pnl_if_held&order=desc|asc&page=1&page_size=30
+    返回 {total, page, page_size, rows:[...]}。进行中的组走 /api/virtual_inprogress。"""
     w = _validate_window(request.args.get("window", "4h"))
     if w is None:
         return jsonify({"error": "invalid window"}), 400
-    log_table = f"virtual_log_{w}"
-    det_table = f"virtual_detail_{w}"
-    timed_reason = f"{w}_timed"
-
-    with db.get_conn() as conn:
-        ver_row = conn.execute(
-            f"SELECT COUNT(*) AS n, MAX(close_time) AS mx FROM {log_table} WHERE close_time IS NOT NULL"
-        ).fetchone()
-        version = (ver_row["n"], ver_row["mx"])
-        cached = _groups_cache.get(w)
-        if cached and cached[0] == version:
-            return jsonify(cached[1])
-
-        groups_rows = conn.execute(
-            f"""SELECT open_time, window_end, side,
-                       COUNT(*) AS n_orders,
-                       SUM(CASE WHEN close_reason='组内+10u' THEN 1 ELSE 0 END) AS n_hit,
-                       SUM(CASE WHEN close_reason=? THEN 1 ELSE 0 END) AS n_timed,
-                       SUM(unrealized_pnl) AS sum_pnl_actual,
-                       MAX(close_reason) AS close_reason
-                FROM {log_table}
-                WHERE close_time IS NOT NULL
-                GROUP BY open_time, side
-                ORDER BY open_time DESC, side""",
-            (timed_reason,)
-        ).fetchall()
-        groups = [dict(r) for r in groups_rows]
-
-        # 只对触发了 +10U 的组查"走完窗口"值（走索引，单组很快）
-        for g in groups:
-            if g["n_hit"] > 0:
-                row = conn.execute(
-                    f"""SELECT SUM(d.unrealized_pnl) AS sum_pnl_held, d.time
-                        FROM {det_table} d
-                        JOIN {log_table} l ON d.log_id = l.id
-                        WHERE l.open_time = ? AND l.side = ?
-                        GROUP BY d.time
-                        ORDER BY d.time DESC LIMIT 1""",
-                    (g["open_time"], g["side"])
-                ).fetchone()
-                g["sum_pnl_if_held"] = row["sum_pnl_held"] if row else None
-                g["last_detail_time"] = row["time"] if row else None
-            else:
-                g["sum_pnl_if_held"] = g["sum_pnl_actual"]
-                g["last_detail_time"] = None
-
-    _groups_cache[w] = (version, groups)
-    return jsonify(groups)
+    side = request.args.get("side") or None
+    time = request.args.get("time") or None
+    sort = request.args.get("sort", "open_time")
+    order = request.args.get("order", "desc")
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        page_size = min(200, max(1, int(request.args.get("page_size", 30))))
+    except (ValueError, TypeError):
+        page, page_size = 1, 30
+    _maybe_refresh_summary(w)
+    total, rows = db.get_virtual_summary_page(w, side, time, sort, order, page, page_size)
+    return jsonify({"total": total, "page": page, "page_size": page_size, "rows": rows})
 
 
 # 兼容旧路由：默认 window=4h，行为同旧
