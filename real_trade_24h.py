@@ -44,7 +44,8 @@ from real_trade_4h import (
     ATTEMPT_INTERVAL_SEC, MAX_LIMIT_ATTEMPTS,
 )
 
-NOTIONAL = MARGIN_PER_POS * LEVERAGE   # 每单目标名义价值（30U）
+SIZE_MULT = 5                                       # 子账号2 开仓数量放大倍数（相对基准 10U/单）
+NOTIONAL  = MARGIN_PER_POS * LEVERAGE * SIZE_MULT    # 每单目标名义价值（150U = 50U 保证金 × 3x）
 import db
 
 logging.basicConfig(
@@ -60,7 +61,7 @@ SWITCH_KEY = "real_24h"   # 自动开单开关标识（看板可切换；关闭�
 
 # ── 策略参数 ──
 WINDOW_HOURS      = 24
-TARGET_GROUP_PNL  = 10.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（24h 周期回测最稳，见 STRATEGY/分析）
+TARGET_GROUP_PNL  = 50.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（随仓位×5 同步放大：10U→50U，保持与回测相同的%行为）
 OPEN_HOURS        = (0,)                 # 开仓整点：每天 00:30
 OPEN_MINUTE       = 30
 OPEN_WINDOW_MIN   = 5                     # 开仓滑动窗口（幂等）
@@ -167,7 +168,7 @@ def run_open_cycle(anchor: datetime):
         log.info(f"[观察模式] 将开 {len(targets)} 单（未真实下单、未写库）")
         for sym, side_label in targets:
             info = symbol_info.get(sym)
-            log.info(f"  [dry] SELL {sym}  名义 {MARGIN_PER_POS*LEVERAGE}U  ({side_label})")
+            log.info(f"  [dry] SELL {sym}  名义 {NOTIONAL}U  ({side_label})")
         log.info(f"═══ 开仓周期结束 {anchor_ts}（观察模式） ═══\n")
         return
 
@@ -185,7 +186,7 @@ def run_open_cycle(anchor: datetime):
         except Exception as e:
             log.warning(f"  {sym} 取 mark 失败：{e}")
             continue
-        res = place_open_limit(sym, info, ref)
+        res = place_open_limit(sym, info, ref, notional=NOTIONAL)
         if res:
             res["side_label"] = side_label
             pending[sym] = res
@@ -229,7 +230,7 @@ def run_open_cycle(anchor: datetime):
                     ref = get_mark_price(sym)
                 except Exception:
                     continue
-            new_res = place_open_limit(sym, data["info"], ref)
+            new_res = place_open_limit(sym, data["info"], ref, notional=NOTIONAL)
             if new_res:
                 new_res["side_label"] = data["side_label"]
                 still[sym] = new_res
@@ -574,7 +575,7 @@ def main():
     log.info(f"  开仓：每天 {OPEN_HOURS} 点 {OPEN_MINUTE} 分")
     log.info(f"  方向：{[d[0] for d in DIRECTIONS]}，各 TOP{TOP_N}")
     log.info(f"  平仓：组内浮盈 ≥ {TARGET_GROUP_PNL}U 提前市价平，否则跑满 {WINDOW_HOURS}h 定时平")
-    log.info(f"  参数：{LEVERAGE}x  {MARGIN_PER_POS}U/单  名义 {MARGIN_PER_POS*LEVERAGE}U")
+    log.info(f"  参数：{LEVERAGE}x  {MARGIN_PER_POS*SIZE_MULT}U/单  名义 {NOTIONAL}U（×{SIZE_MULT} 放大）")
 
     last_open_anchor = None   # 观察模式下用于同一 anchor 去重
     while True:

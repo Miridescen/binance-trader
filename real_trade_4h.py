@@ -138,13 +138,15 @@ def select_top10(side_label: str) -> tuple[list, dict]:
 
 # ── 开仓核心 ──
 
-def place_open_limit(symbol: str, info: dict, ref_price: float) -> dict | None:
-    """挂限价 SELL（开空）。ref_price 是参考价（标记价），按 tick 对齐。"""
+def place_open_limit(symbol: str, info: dict, ref_price: float, notional: float = None) -> dict | None:
+    """挂限价 SELL（开空）。ref_price 是参考价（标记价），按 tick 对齐。
+    notional: 目标名义价值；None 时用默认 MARGIN_PER_POS*LEVERAGE（不传即原行为，8h/4h 不受影响）。"""
     step  = info["step_size"]
     tick  = info["tick_size"]
     min_n = info["min_notional"]
 
-    qty   = floor_to_step(MARGIN_PER_POS * LEVERAGE / ref_price, step)
+    n     = notional if notional else MARGIN_PER_POS * LEVERAGE
+    qty   = floor_to_step(n / ref_price, step)
     price = round_to_tick(ref_price, tick)
     if qty * ref_price < min_n:
         log.warning(f"  {symbol} 名义价值 {qty*ref_price:.2f} < min {min_n}，跳过")
@@ -163,11 +165,12 @@ def place_open_limit(symbol: str, info: dict, ref_price: float) -> dict | None:
     return None
 
 
-def place_open_market(symbol: str, info: dict) -> dict | None:
-    """市价 SELL 兜底"""
+def place_open_market(symbol: str, info: dict, notional: float = None) -> dict | None:
+    """市价 SELL 兜底。notional: 目标名义价值；None 时用默认（不传即原行为）。"""
     step = info["step_size"]
     mark = get_mark_price(symbol)
-    qty  = floor_to_step(MARGIN_PER_POS * LEVERAGE / mark, step)
+    n    = notional if notional else MARGIN_PER_POS * LEVERAGE
+    qty  = floor_to_step(n / mark, step)
     if qty * mark < info["min_notional"]:
         log.warning(f"  {symbol} 市价兜底跳过（名义价值不足）")
         return None
