@@ -340,6 +340,12 @@ def init_db():
             updated_at  TEXT
         );
 
+        -- 一键平仓请求标志（看板下指令 → 对应交易进程循环里取走并执行，reason=一键平仓）
+        CREATE TABLE IF NOT EXISTS force_close_flag (
+            key          TEXT PRIMARY KEY,   -- real_8h / real_24h
+            requested_at TEXT
+        );
+
         -- 模拟盘组级汇总（物化，增量维护；每个 窗口×开仓时段×方向 一行，收尾即写死）
         -- 供模拟盘页“求和 + 分页”直接读，避免每次在订单大表 + detail 巨表上重算
         CREATE TABLE IF NOT EXISTS virtual_group_summary (
@@ -927,6 +933,33 @@ def get_all_switches() -> dict:
     with get_conn() as conn:
         rows = conn.execute("SELECT key, enabled FROM strategy_switch").fetchall()
         return {r["key"]: bool(r["enabled"]) for r in rows}
+
+
+# ── force_close_flag（一键平仓请求，看板 set / 交易进程 pop）──────────────
+
+def request_force_close(key: str):
+    """看板下达一键平仓请求（幂等：重复点只刷新时间）。"""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO force_close_flag (key, requested_at) VALUES (?, datetime('now','localtime')) "
+            "ON CONFLICT(key) DO UPDATE SET requested_at = excluded.requested_at",
+            (key,),
+        )
+
+
+def pop_force_close(key: str) -> bool:
+    """交易进程取走请求：存在则删除并返回 True（原子取走，保证只执行一次）。"""
+    with get_conn() as conn:
+        r = conn.execute("SELECT 1 FROM force_close_flag WHERE key = ?", (key,)).fetchone()
+        if r:
+            conn.execute("DELETE FROM force_close_flag WHERE key = ?", (key,))
+        return r is not None
+
+
+def has_force_close(key: str) -> bool:
+    """仅查询是否有待处理请求（不取走），供看板显示“处理中”。"""
+    with get_conn() as conn:
+        return conn.execute("SELECT 1 FROM force_close_flag WHERE key = ?", (key,)).fetchone() is not None
 
 
 # ── virtual_group_summary（组级汇总，增量物化，供模拟盘页分页/求和）──────────────

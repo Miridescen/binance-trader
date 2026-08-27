@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, Select, Space, Switch, message } from 'antd'
+import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, Select, Space, Switch, message, Modal } from 'antd'
 import { ReloadOutlined, WalletOutlined, DollarOutlined } from '@ant-design/icons'
 import axios from 'axios'
 
@@ -157,23 +157,44 @@ function AccountCard({ tag, tagColor, subtitle, rt }) {
   )
 }
 
-// ── 一个账户的实时持仓块（跌幅榜-空）──
-function PositionsBlock({ rt }) {
+// ── 一个账户的实时持仓块（跌幅榜-空）+ 一键平仓 ──
+function PositionsBlock({ rt, strategyKey, accountLabel }) {
   const positions = (rt?.positions || []).map((p, i) => ({ ...p, key: i }))
   const losers = positions.filter(p => p.side?.includes('跌幅'))
   const others = positions.filter(p => !p.side?.includes('跌幅') && !p.side?.includes('涨幅'))
+
+  const doForceClose = () => {
+    Modal.confirm({
+      title: '一键平仓确认',
+      okText: '确认市价平仓',
+      okType: 'danger',
+      cancelText: '取消',
+      content: `将立即市价平掉「${accountLabel}」当前 ${losers.length} 个持仓（跌幅榜-空）。此操作不可撤销，平仓原因记为「一键平仓」。确认？`,
+      onOk: () => axios.post('/api/force_close', { key: strategyKey })
+        .then(() => message.success('已发出平仓指令，约 30 秒内执行；稍后点“刷新全部”查看'))
+        .catch(() => message.error('下达失败，请重试')),
+    })
+  }
+
   return (
     <Card size="small" style={{ marginBottom: 12 }} title={
       <span>实时持仓<span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{positions.length} 笔</span></span>
     }>
-      <Card size="small" type="inner" title={
-        <span>
-          <Tag color="cyan">跌幅榜-空</Tag>
-          <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-            {losers.length} 笔  浮盈 <PnlCell value={sumPnl(losers)} />
+      <Card size="small" type="inner"
+        title={
+          <span>
+            <Tag color="cyan">跌幅榜-空</Tag>
+            <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+              {losers.length} 笔  浮盈 <PnlCell value={sumPnl(losers)} />
+            </span>
           </span>
-        </span>
-      }>
+        }
+        extra={
+          <Button size="small" danger disabled={losers.length === 0} onClick={doForceClose}>
+            一键平仓
+          </Button>
+        }
+      >
         <Table
           columns={positionColumns}
           dataSource={losers}
@@ -329,7 +350,7 @@ export default function Dashboard() {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
           {sectionHeader('子账号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h', 'real_8h')}
-          <PositionsBlock rt={rt} />
+          <PositionsBlock rt={rt} strategyKey="real_8h" accountLabel="子账号1 · 8h" />
           <div style={{ marginBottom: 12 }}>
             <Space wrap>
               <span style={{ color: '#666' }}>按时段筛选：</span>
@@ -341,8 +362,8 @@ export default function Dashboard() {
           <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
         </Col>
         <Col xs={24} lg={12}>
-          {sectionHeader('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +10U 提前平，否则跑满 24h', 'real_24h')}
-          <PositionsBlock rt={rt24} />
+          {sectionHeader('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +50U 提前平，否则跑满 24h（5x）', 'real_24h')}
+          <PositionsBlock rt={rt24} strategyKey="real_24h" accountLabel="子账号2 · 24h" />
           <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
         </Col>
       </Row>

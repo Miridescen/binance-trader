@@ -436,6 +436,24 @@ def set_switch():
     return jsonify({"ok": True, "key": key, "enabled": enabled})
 
 
+@app.route("/api/force_close", methods=["POST"])
+def force_close():
+    """一键平仓：下达请求标志，由对应交易进程在循环里取走并市价整组平（reason=一键平仓）。
+    body: {key: real_8h|real_24h}。最多约 30 秒内执行（交易循环节奏）。"""
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get("key")
+    if key not in SWITCH_KEYS:
+        return jsonify({"error": "参数错误：key 需为 real_8h / real_24h"}), 400
+    db.request_force_close(key)
+    return jsonify({"ok": True, "key": key, "pending": True})
+
+
+@app.route("/api/force_close/status")
+def force_close_status():
+    """查询各策略是否有待执行的一键平仓请求（用于看板显示“处理中”）。"""
+    return jsonify({k: db.has_force_close(k) for k in SWITCH_KEYS})
+
+
 @app.route("/api/open_log_24h/anchors")
 def open_log_24h_anchors():
     """返回 24h 所有周期 anchor（按 open_anchor 分组）倒序 + 笔数"""

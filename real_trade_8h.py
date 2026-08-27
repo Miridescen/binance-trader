@@ -551,6 +551,30 @@ def monitor_batches():
             close_batch(brows, reason="8h_timed", market_now=False, window_end=window_end)
 
 
+# ── 一键平仓（看板触发）──
+
+def check_force_close():
+    """取走看板的一键平仓请求：把当前所有未平 batch 用市价整组平掉，reason=一键平仓。
+    复用 close_batch（市价平 → 残余清扫 → 临时标记 → 回填），与 +16U/定时平同一套收尾。"""
+    if not LIVE:
+        return
+    if not db.pop_force_close(SWITCH_KEY):
+        return
+    rows = db.get_open_log_8h_unclosed()
+    if not rows:
+        log.info("[一键平仓] 收到指令，但当前无未平持仓，忽略")
+        return
+    batches: dict = {}
+    for r in rows:
+        batches.setdefault((r["open_anchor"], r["side"]), []).append(r)
+    log.info(f"[一键平仓] 收到看板指令 → 市价平 {len(rows)} 单（{len(batches)} 组）")
+    for (anchor, side), brows in batches.items():
+        try:
+            close_batch(brows, reason="一键平仓", market_now=True)
+        except Exception as e:
+            log.error(f"[一键平仓] 平 {side} @ {anchor} 异常：{e}", exc_info=True)
+
+
 # ── 主循环 ──
 
 def _is_in_open_window(now: datetime) -> bool:
@@ -576,6 +600,11 @@ def main():
     while True:
         try:
             now = datetime.now()
+            # 0) 一键平仓（看板触发，最优先处理）
+            try:
+                check_force_close()
+            except Exception as e:
+                log.error(f"一键平仓检查异常：{e}", exc_info=True)
             # 1) 开仓窗口 XX:30 ~ XX:34
             if _is_in_open_window(now):
                 anchor = _open_anchor_of(now)
