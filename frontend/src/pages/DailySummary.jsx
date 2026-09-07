@@ -1,24 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Spin, Row, Col, Statistic } from 'antd'
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
+import { Table, Spin, Row, Col } from 'antd'
 import axios from 'axios'
-
-function pnlColor(n) {
-  if (n > 0) return '#3f8600'
-  if (n < 0) return '#cf1322'
-  return '#999'
-}
+import { Panel, PageHeader, Stat } from '../components/ui'
+import { pnlColor, pnlTone, fmtSigned } from '../lib/fmt'
 
 function PnlCell({ v, decimal = 1 }) {
-  if (!v) return <span style={{ color: '#ccc' }}>-</span>
+  if (!v) return <span className="muted">-</span>
   return (
-    <span style={{ color: pnlColor(v.pnl), fontWeight: 500 }}>
-      {v.pnl >= 0 ? '+' : ''}{v.pnl.toFixed(decimal)}
+    <span className="pnl" style={{ color: pnlColor(v.pnl) }}>
+      {fmtSigned(v.pnl, decimal)}
       <br />
-      <span style={{ color: '#999', fontWeight: 400, fontSize: 11 }}>{v.wins}/{v.count}</span>
+      <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>{v.wins}/{v.count}</span>
     </span>
   )
 }
+
+const Signed = ({ v, digits = 1 }) => <b className={`pnl ${pnlTone(v)}`}>{fmtSigned(v, digits)}</b>
 
 const GROUPS = [
   { label: '涨幅榜-空', filtered: '涨幅榜-空（有过滤）', unfiltered: '涨幅榜-空（无过滤）' },
@@ -57,15 +54,15 @@ export default function DailySummary() {
   }, [])
 
   const realColumns = [
-    { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b>{v?.slice(5)}</b> },
+    { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b className="num">{v?.slice(5)}</b> },
     ...REAL_SIDES.map(side => ({
       title: side.includes('涨幅') ? '涨幅空（有过滤）' : '跌幅空（有过滤）',
-      dataIndex: side, key: side, width: 110,
+      dataIndex: side, key: side, width: 110, align: 'right',
       render: v => <PnlCell v={v} decimal={2} />,
     })),
     {
-      title: '合计', dataIndex: 'total', key: 'total', width: 90,
-      render: v => v == null ? '-' : <b style={{ color: pnlColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(2)} U</b>,
+      title: '合计', dataIndex: 'total', key: 'total', width: 100, align: 'right',
+      render: v => v == null ? '-' : <b className={`pnl ${pnlTone(v)}`}>{fmtSigned(v, 2)} U</b>,
     },
   ]
   const realRows = allDates.map(date => {
@@ -95,62 +92,60 @@ export default function DailySummary() {
   }
 
   const groupColumns = [
-    { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b>{v?.slice(5)}</b> },
-    { title: '有过滤', dataIndex: 'filtered', key: 'filtered', width: 100, render: v => <PnlCell v={v} /> },
-    { title: '无过滤', dataIndex: 'unfiltered', key: 'unfiltered', width: 100, render: v => <PnlCell v={v} /> },
+    { title: '日期', dataIndex: 'date', key: 'date', width: 90, render: v => <b className="num">{v?.slice(5)}</b> },
+    { title: '有过滤', dataIndex: 'filtered', key: 'filtered', width: 100, align: 'right', render: v => <PnlCell v={v} /> },
+    { title: '无过滤', dataIndex: 'unfiltered', key: 'unfiltered', width: 100, align: 'right', render: v => <PnlCell v={v} /> },
     {
-      title: '差值', dataIndex: 'diff', key: 'diff', width: 80,
-      render: v => v == null ? '-' : <b style={{ color: pnlColor(v) }}>{v >= 0 ? '+' : ''}{v.toFixed(1)}</b>,
+      title: '差值', dataIndex: 'diff', key: 'diff', width: 80, align: 'right',
+      render: v => v == null ? '-' : <Signed v={v} />,
     },
   ]
 
   return (
     <Spin spinning={loading}>
-      <Card size="small" title="实盘每日汇总（近10天）" style={{ marginBottom: 16 }}>
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-          {REAL_SIDES.map(s => {
-            const pnl = realTotals[s] || 0
+      <div className="panel-stack">
+        <PageHeader title="每日汇总" subtitle="近 10 天实盘与模拟盘按日盈亏（数字下方为 胜/总 笔数）" />
+
+        <Panel flush title="实盘每日汇总" subtitle="近 10 天">
+          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', borderBottom: '1px solid var(--border)' }}>
+            {REAL_SIDES.map(s => {
+              const pnl = realTotals[s] || 0
+              return (
+                <Stat key={s} size="sm" label={s.includes('涨幅') ? '涨幅空（有过滤）' : '跌幅空（有过滤）'}
+                  unit="U" tone={pnlTone(pnl)} value={fmtSigned(pnl, 2)} />
+              )
+            })}
+          </div>
+          <Table columns={realColumns} dataSource={realRows}
+            pagination={false} scroll={{ x: 'max-content' }} size="small" />
+        </Panel>
+
+        <Row gutter={[16, 16]}>
+          {GROUPS.map(group => {
+            const rows = buildGroupRows(group)
+            const fTotal = rows.reduce((acc, r) => acc + (r.filtered?.pnl || 0), 0)
+            const uTotal = rows.reduce((acc, r) => acc + (r.unfiltered?.pnl || 0), 0)
+            const diff = fTotal - uTotal
             return (
-              <Col xs={12} sm={8} md={6} key={s}>
-                <Card size="small">
-                  <Statistic title={s.includes('涨幅') ? '涨幅空（有过滤）' : '跌幅空（有过滤）'}
-                    value={Math.abs(pnl).toFixed(2)} suffix="U"
-                    prefix={pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                    valueStyle={{ color: pnlColor(pnl), fontSize: 16 }} />
-                </Card>
+              <Col xs={24} lg={12} key={group.label}>
+                <Panel
+                  flush
+                  title={group.label}
+                  extra={
+                    <div className="kv-row" style={{ gap: 14 }}>
+                      <span className="kv-inline">有过滤 <Signed v={fTotal} /></span>
+                      <span className="kv-inline">无过滤 <Signed v={uTotal} /></span>
+                      <span className="kv-inline">差 <Signed v={diff} /></span>
+                    </div>
+                  }>
+                  <Table columns={groupColumns} dataSource={rows}
+                    pagination={false} scroll={{ x: 'max-content' }} size="small" />
+                </Panel>
               </Col>
             )
           })}
         </Row>
-        <Table columns={realColumns} dataSource={realRows}
-          pagination={false} scroll={{ x: 'max-content' }} size="small" />
-      </Card>
-
-      <Row gutter={[12, 12]}>
-        {GROUPS.map(group => {
-          const rows = buildGroupRows(group)
-          const fTotal = rows.reduce((acc, r) => acc + (r.filtered?.pnl || 0), 0)
-          const uTotal = rows.reduce((acc, r) => acc + (r.unfiltered?.pnl || 0), 0)
-          const diff = fTotal - uTotal
-          return (
-            <Col xs={24} lg={12} key={group.label}>
-              <Card size="small"
-                title={group.label}
-                extra={
-                  <span style={{ fontSize: 13 }}>
-                    有过滤 <b style={{ color: pnlColor(fTotal) }}>{fTotal >= 0 ? '+' : ''}{fTotal.toFixed(1)}</b>
-                    {' / '}无过滤 <b style={{ color: pnlColor(uTotal) }}>{uTotal >= 0 ? '+' : ''}{uTotal.toFixed(1)}</b>
-                    {' / '}差 <b style={{ color: pnlColor(diff) }}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</b>
-                  </span>
-                }
-                style={{ marginBottom: 12 }}>
-                <Table columns={groupColumns} dataSource={rows}
-                  pagination={false} scroll={{ x: 'max-content' }} size="small" />
-              </Card>
-            </Col>
-          )
-        })}
-      </Row>
+      </div>
     </Spin>
   )
 }

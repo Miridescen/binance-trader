@@ -1,92 +1,78 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Spin, Tag, Row, Col, Statistic, Divider } from 'antd'
-import { ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Table, Spin, Button } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
 import axios from 'axios'
+import { PnlCell, Num, Chip, Panel, PageHeader, Stat } from '../components/ui'
+import { pnlColor, pnlTone, fmtSigned } from '../lib/fmt'
 
-function pnlColor(n) {
-  if (n > 0) return '#3f8600'
-  if (n < 0) return '#cf1322'
-  return '#999'
-}
-
-const signalColor = { '多': 'red', '空': 'green', '观望': 'default' }
+// 方向色：多 红 / 空 绿 / 观望 灰（沿用原页面约定）
+const signalTone = { '多': 'red', '空': 'green', '观望': 'grey' }
+const SignalChip = ({ v }) => <Chip tone={signalTone[v] || 'grey'}>{v}</Chip>
 
 const indicatorColumns = [
-  { title: '时间', dataIndex: 'time', key: 'time', width: 130, render: v => v?.slice(5, 16) },
-  { title: 'BTC价格', dataIndex: 'price', key: 'price', width: 100, render: v => v ? parseFloat(v).toFixed(2) : '-' },
-  { title: 'SMA200', dataIndex: 'sma200', key: 'sma200', width: 100, render: v => v ? parseFloat(v).toFixed(2) : '-' },
+  { title: '时间', dataIndex: 'time', key: 'time', width: 120,
+    render: v => <span className="num" style={{ fontWeight: 500 }}>{v?.slice(5, 16)}</span> },
+  { title: 'BTC价格', dataIndex: 'price', key: 'price', width: 100, align: 'right', render: v => <Num value={v} /> },
+  { title: 'SMA200', dataIndex: 'sma200', key: 'sma200', width: 100, align: 'right', render: v => <Num value={v} /> },
   {
-    title: '价格/SMA', key: 'price_vs_sma', width: 80,
+    title: '价格/SMA', key: 'price_vs_sma', width: 90,
     render: (_, r) => {
       if (!r.price || !r.sma200) return '-'
       const above = parseFloat(r.price) > parseFloat(r.sma200)
-      return <Tag color={above ? 'red' : 'green'}>{above ? '上方' : '下方'}</Tag>
+      return <Chip tone={above ? 'red' : 'green'}>{above ? '上方' : '下方'}</Chip>
     },
   },
   {
-    title: 'EMA交叉', key: 'ema_cross', width: 80,
+    title: 'EMA交叉', key: 'ema_cross', width: 90,
     render: (_, r) => {
       if (!r.ema50 || !r.ema200) return '-'
       const golden = parseFloat(r.ema50) > parseFloat(r.ema200)
-      return <Tag color={golden ? 'red' : 'green'}>{golden ? '金叉' : '死叉'}</Tag>
+      return <Chip tone={golden ? 'red' : 'green'}>{golden ? '金叉' : '死叉'}</Chip>
     },
   },
-  { title: 'RSI周', dataIndex: 'rsi_weekly', key: 'rsi_weekly', width: 70, render: v => v ? parseFloat(v).toFixed(1) : '-' },
+  { title: 'RSI周', dataIndex: 'rsi_weekly', key: 'rsi_weekly', width: 70, align: 'right', render: v => <Num value={v} digits={1} /> },
   {
-    title: 'MACD柱', dataIndex: 'macd_histogram', key: 'macd_histogram', width: 80,
+    title: 'MACD柱', dataIndex: 'macd_histogram', key: 'macd_histogram', width: 90, align: 'right',
+    render: v => v == null ? '-' : <PnlCell value={v} />,
+  },
+  {
+    title: '资金费率', dataIndex: 'funding_rate', key: 'funding_rate', width: 90, align: 'right',
     render: v => {
       if (v == null) return '-'
       const n = parseFloat(v)
-      return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>
+      return <span className="num" style={{ color: pnlColor(n) }}>{(n * 100).toFixed(4)}%</span>
     },
   },
   {
-    title: '资金费率', dataIndex: 'funding_rate', key: 'funding_rate', width: 90,
-    render: v => {
-      if (v == null) return '-'
-      const n = parseFloat(v)
-      return <span style={{ color: pnlColor(n) }}>{(n * 100).toFixed(4)}%</span>
-    },
-  },
-  {
-    title: '恐惧贪婪', key: 'fng', width: 90,
+    title: '恐惧贪婪', key: 'fng', width: 90, align: 'right',
     render: (_, r) => {
       const v = r.fear_greed
       if (v == null) return '-'
-      const color = v <= 25 ? '#cf1322' : v <= 45 ? '#fa8c16' : v <= 55 ? '#999' : v <= 75 ? '#52c41a' : '#3f8600'
-      return <span style={{ color, fontWeight: 500 }}>{v}</span>
+      const color = v <= 25 ? '#b91c1c' : v <= 45 ? '#c2410c' : v <= 55 ? '#94a3b8' : v <= 75 ? '#16a34a' : '#15803d'
+      return <span className="num" style={{ color, fontWeight: 600 }}>{v}</span>
     },
   },
-  {
-    title: '信号', dataIndex: 'signal', key: 'signal', width: 70,
-    render: v => <Tag color={signalColor[v] || 'default'}>{v}</Tag>,
-  },
+  { title: '信号', dataIndex: 'signal', key: 'signal', width: 70, render: v => <SignalChip v={v} /> },
 ]
 
 const signalColumns = [
-  { title: '开仓时间', dataIndex: 'open_time', key: 'open_time', width: 130, render: v => v?.slice(5, 16) },
-  { title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 130,
-    render: v => v ? v.slice(5, 16) : <Tag color="blue">持仓中</Tag> },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 60, render: v => <Tag color={signalColor[v]}>{v}</Tag> },
-  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 100, render: v => v ? parseFloat(v).toFixed(2) : '-' },
-  { title: '平仓价', dataIndex: 'close_price', key: 'close_price', width: 100, render: v => v ? parseFloat(v).toFixed(2) : '-' },
-  { title: '信号原因', dataIndex: 'signal_reason', key: 'signal_reason', width: 180 },
+  { title: '开仓时间', dataIndex: 'open_time', key: 'open_time', width: 120,
+    render: v => <span className="num" style={{ fontWeight: 500 }}>{v?.slice(5, 16)}</span> },
+  { title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 120,
+    render: v => v ? <span className="num muted">{v.slice(5, 16)}</span> : <Chip tone="blue">持仓中</Chip> },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 64, render: v => <SignalChip v={v} /> },
+  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 100, align: 'right', render: v => <Num value={v} /> },
+  { title: '平仓价', dataIndex: 'close_price', key: 'close_price', width: 100, align: 'right', render: v => <Num value={v} /> },
+  { title: '信号原因', dataIndex: 'signal_reason', key: 'signal_reason', width: 220,
+    render: v => <span className="muted">{v}</span> },
   {
-    title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 90,
-    render: v => {
-      if (v == null) return '-'
-      const n = parseFloat(v)
-      return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)} U</span>
-    },
+    title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 100, align: 'right',
+    render: v => v == null ? '-' : <PnlCell value={v} suffix=" U" />,
     sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0),
   },
   {
-    title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80,
-    render: v => {
-      if (v == null) return '-'
-      const n = parseFloat(v)
-      return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(1)}%</span>
-    },
+    title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80, align: 'right',
+    render: v => v == null ? '-' : <PnlCell value={v} digits={1} suffix="%" />,
   },
 ]
 
@@ -118,90 +104,58 @@ export default function BtcTrend() {
   const totalPnl = closedSignals.reduce((acc, r) => acc + (r.unrealized_pnl || 0), 0)
   const wins = closedSignals.filter(r => (r.unrealized_pnl || 0) > 0).length
 
+  const rsi = parseFloat(latest.rsi_weekly)
+  const golden = latest.ema50 && latest.ema200 ? parseFloat(latest.ema50) > parseFloat(latest.ema200) : null
+  const macd = latest.macd_histogram != null ? parseFloat(latest.macd_histogram) : null
+  const sigTone = latest.signal === '多' ? 'down' : latest.signal === '空' ? 'up' : 'flat' // 多 红 / 空 绿
+
   return (
     <Spin spinning={loading}>
-      <div style={{ textAlign: 'right', marginBottom: 8, color: '#999', fontSize: 13 }}>
-        <ReloadOutlined style={{ cursor: 'pointer', marginRight: 6 }} onClick={fetchAll} />
-      </div>
+      <div className="panel-stack">
+        <PageHeader
+          title="BTC 趋势"
+          subtitle="SMA200 / EMA 交叉 / 周线 RSI / MACD / 资金费率 / 恐惧贪婪，每分钟自动刷新"
+          extra={<Button icon={<ReloadOutlined />} onClick={fetchAll}>刷新</Button>}
+        />
 
-      {/* 当前状态卡片 */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="BTC 价格" value={latest.price ? parseFloat(latest.price).toFixed(2) : '-'} suffix="U" />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="当前信号" value={latest.signal || '-'}
-              valueStyle={{ color: latest.signal === '多' ? '#cf1322' : latest.signal === '空' ? '#3f8600' : '#999' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="RSI 周线" value={latest.rsi_weekly ? parseFloat(latest.rsi_weekly).toFixed(1) : '-'}
-              valueStyle={{ color: parseFloat(latest.rsi_weekly) > 50 ? '#cf1322' : '#3f8600' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="EMA交叉"
-              value={latest.ema50 && latest.ema200 ? (parseFloat(latest.ema50) > parseFloat(latest.ema200) ? '金叉' : '死叉') : '-'}
-              valueStyle={{ color: latest.ema50 && parseFloat(latest.ema50) > parseFloat(latest.ema200) ? '#cf1322' : '#3f8600' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="MACD柱"
-              value={latest.macd_histogram != null ? parseFloat(latest.macd_histogram).toFixed(2) : '-'}
-              valueStyle={{ color: pnlColor(parseFloat(latest.macd_histogram)) }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="恐惧贪婪" value={latest.fear_greed ?? '-'} suffix={latest.fear_greed_label || ''} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="累计盈亏" value={Math.abs(totalPnl).toFixed(2)} suffix="U"
-              prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-              valueStyle={{ color: pnlColor(totalPnl) }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <Card size="small">
-            <Statistic title="胜率" value={closedSignals.length ? `${wins}/${closedSignals.length}` : '-'} />
-          </Card>
-        </Col>
+        {/* 当前状态 */}
+        <div className="stat-grid stat-grid-4">
+          <Stat card label="BTC 价格" unit="U" value={latest.price ? <Num value={latest.price} /> : '-'} />
+          <Stat card label="当前信号" tone={sigTone} value={latest.signal || '-'} />
+          <Stat card label="RSI 周线" tone={isNaN(rsi) ? undefined : rsi > 50 ? 'down' : 'up'}
+            value={isNaN(rsi) ? '-' : rsi.toFixed(1)} />
+          <Stat card label="EMA 交叉" tone={golden == null ? undefined : golden ? 'down' : 'up'}
+            value={golden == null ? '-' : golden ? '金叉' : '死叉'} />
+          <Stat card label="MACD 柱" tone={macd == null ? undefined : pnlTone(macd)}
+            value={macd == null ? '-' : fmtSigned(macd)} />
+          <Stat card label="恐惧贪婪" value={latest.fear_greed ?? '-'} unit={latest.fear_greed_label || ''} />
+          <Stat card label="累计盈亏" unit="U" tone={pnlTone(totalPnl)} value={fmtSigned(totalPnl)} />
+          <Stat card label="胜率" value={closedSignals.length ? `${wins}/${closedSignals.length}` : '-'}
+            hint={closedSignals.length ? `${((wins / closedSignals.length) * 100).toFixed(0)}%` : undefined} />
+        </div>
+
         {openPosition && (
-          <Col xs={24} sm={16} md={12}>
-            <Card size="small" title={<span>当前持仓 <Tag color={signalColor[openPosition.side]}>{openPosition.side}</Tag></span>}>
-              <span>入场 {parseFloat(openPosition.entry_price).toFixed(2)}</span>
-              <span style={{ marginLeft: 16 }}>开仓时间 {openPosition.open_time?.slice(5, 16)}</span>
-            </Card>
-          </Col>
+          <Panel title={<>当前持仓<SignalChip v={openPosition.side} /></>}>
+            <div className="kv-row">
+              <div className="kv"><span className="kv-k">入场价</span><span className="kv-v num"><Num value={openPosition.entry_price} /></span></div>
+              <div className="kv"><span className="kv-k">开仓时间</span><span className="kv-v num">{openPosition.open_time?.slice(5, 16)}</span></div>
+            </div>
+          </Panel>
         )}
-      </Row>
 
-      {/* 交易记录 */}
-      <Card size="small" title="信号交易记录" style={{ marginBottom: 16 }}>
-        <Table columns={signalColumns} dataSource={signals}
-          pagination={false} scroll={{ x: 'max-content' }} size="small"
-          rowClassName={r => !r.close_time ? 'row-open' : (r.unrealized_pnl || 0) > 0 ? 'row-profit' : 'row-loss'} />
-      </Card>
+        {/* 交易记录 */}
+        <Panel flush title="信号交易记录" subtitle={`${signals.length} 条`}>
+          <Table columns={signalColumns} dataSource={signals}
+            pagination={false} scroll={{ x: 'max-content' }} size="small"
+            rowClassName={r => !r.close_time ? 'row-open' : (r.unrealized_pnl || 0) > 0 ? 'row-profit' : 'row-loss'} />
+        </Panel>
 
-      {/* 指标历史 */}
-      <Card size="small" title="指标历史">
-        <Table columns={indicatorColumns} dataSource={indicators}
-          pagination={{ pageSize: 50 }} scroll={{ x: 'max-content' }} size="small" />
-      </Card>
-
-      <style>{`
-        .row-profit td { background: #f6ffed !important; }
-        .row-loss td { background: #fff1f0 !important; }
-        .row-open td { background: #e6f4ff !important; }
-      `}</style>
+        {/* 指标历史 */}
+        <Panel flush title="指标历史" subtitle={`${indicators.length} 条`}>
+          <Table columns={indicatorColumns} dataSource={indicators}
+            pagination={{ pageSize: 50, size: 'small' }} scroll={{ x: 'max-content' }} size="small" />
+        </Panel>
+      </div>
     </Spin>
   )
 }

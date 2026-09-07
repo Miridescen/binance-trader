@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Table, Card, Tag, Spin, Select, Space, Segmented } from 'antd'
+import { Table, Spin, Select, Segmented } from 'antd'
 import axios from 'axios'
+import { PnlCell, Num, Chip, SideChip, Panel, PageHeader } from '../components/ui'
 
 // 账户 → 周期/记录接口前缀
 const ACCT_OPTIONS = [
@@ -8,76 +9,45 @@ const ACCT_OPTIONS = [
   { label: '子账号2 · 24h', value: '24h' },
 ]
 
-function pnlColor(val) {
-  const n = parseFloat(val)
-  if (n > 0) return '#3f8600'
-  if (n < 0) return '#cf1322'
-  return '#999'
-}
-
-function PnlCell({ value, digits = 4 }) {
-  const n = parseFloat(value)
-  if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(n), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(digits)}
-    </span>
-  )
-}
-
-function RoeCell({ value }) {
-  const n = parseFloat(value)
-  if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(n), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(2)}%
-    </span>
-  )
-}
-
 const columns = [
   { title: '开仓时间', dataIndex: 'open_time', key: 'open_time', width: 110,
-    render: v => v ? v.slice(5, 16) : '-' },
+    render: v => v ? <span className="num" style={{ fontWeight: 500 }}>{v.slice(5, 16)}</span> : '-' },
   { title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 110,
-    render: v => v ? v.slice(5, 16) : <Tag color="blue">持仓中</Tag> },
-  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110 },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 130,
-    render: v => {
-      let color = 'default'
-      if (v?.includes('涨幅') && v?.includes('空')) color = 'green'
-      else if (v?.includes('跌幅') && v?.includes('空')) color = 'cyan'
-      return <Tag color={color}>{v}</Tag>
-    },
+    render: v => v ? <span className="num muted">{v.slice(5, 16)}</span> : <Chip tone="blue">持仓中</Chip> },
+  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 120,
+    render: v => <span style={{ fontWeight: 600 }}>{v}</span> },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 150,
+    render: v => <SideChip side={v} />,
     filters: [
       { text: '涨幅榜-空（无过滤）', value: '涨幅榜-空（无过滤）' },
       { text: '跌幅榜-空（无过滤）', value: '跌幅榜-空（无过滤）' },
     ],
     onFilter: (value, record) => record.side === value,
   },
-  { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', width: 100,
-    render: v => v ? parseFloat(v).toFixed(6) : '-' },
-  { title: '平仓价', dataIndex: 'close_price', key: 'close_price', width: 100,
-    render: v => v ? parseFloat(v).toFixed(6) : '-' },
-  { title: '数量', dataIndex: 'position_amt', key: 'position_amt', width: 90,
-    render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '杠杆', dataIndex: 'leverage', key: 'leverage', width: 60,
-    render: v => v ? `${v}x` : '-' },
-  { title: '盈亏(USDT)', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 110,
+  { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', width: 100, align: 'right',
+    render: v => <Num value={v} digits={6} /> },
+  { title: '平仓价', dataIndex: 'close_price', key: 'close_price', width: 100, align: 'right',
+    render: v => <Num value={v} digits={6} /> },
+  { title: '数量', dataIndex: 'position_amt', key: 'position_amt', width: 90, align: 'right',
+    render: v => <Num value={v} digits={4} /> },
+  { title: '杠杆', dataIndex: 'leverage', key: 'leverage', width: 60, align: 'right',
+    render: v => v ? <span className="num">{v}x</span> : '-' },
+  { title: '盈亏(USDT)', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 110, align: 'right',
     render: v => <PnlCell value={v} digits={4} />,
     sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0),
   },
-  { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 90,
-    render: v => <RoeCell value={v} />,
+  { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 90, align: 'right',
+    render: v => <PnlCell value={v} digits={2} suffix="%" />,
     sorter: (a, b) => (a.roe_pct || 0) - (b.roe_pct || 0),
   },
-  { title: '开仓手续费', dataIndex: 'open_commission', key: 'open_commission', width: 100,
-    render: v => v != null ? parseFloat(v).toFixed(4) : '-' },
-  { title: '平仓手续费', dataIndex: 'close_commission', key: 'close_commission', width: 100,
-    render: v => v != null ? parseFloat(v).toFixed(4) : '-' },
-  { title: '资金费', dataIndex: 'funding_fee', key: 'funding_fee', width: 90,
+  { title: '开仓手续费', dataIndex: 'open_commission', key: 'open_commission', width: 100, align: 'right',
+    render: v => v != null ? <span className="num muted">{parseFloat(v).toFixed(4)}</span> : '-' },
+  { title: '平仓手续费', dataIndex: 'close_commission', key: 'close_commission', width: 100, align: 'right',
+    render: v => v != null ? <span className="num muted">{parseFloat(v).toFixed(4)}</span> : '-' },
+  { title: '资金费', dataIndex: 'funding_fee', key: 'funding_fee', width: 90, align: 'right',
     render: v => v != null ? <PnlCell value={v} digits={4} /> : '-' },
-  { title: '平仓原因', dataIndex: 'close_reason', key: 'close_reason', width: 95,
-    render: v => v ? <Tag>{v}</Tag> : '-' },
+  { title: '平仓原因', dataIndex: 'close_reason', key: 'close_reason', width: 100,
+    render: v => v ? <Chip tone="grey">{v}</Chip> : '-' },
 ]
 
 export default function OpenLog() {
@@ -124,36 +94,43 @@ export default function OpenLog() {
   const netPnl = grossPnl + totalComm + totalFunding
 
   return (
-    <div>
-      <Card size="small" style={{ marginBottom: 12 }}>
-        <Space wrap>
-          <Segmented options={ACCT_OPTIONS} value={acct} onChange={setAcct} />
-          <span style={{ marginLeft: 8 }}>选择周期：</span>
-          <Select
-            style={{ minWidth: 240 }}
-            placeholder={loadingAnchors ? '加载中...' : (anchors.length === 0 ? '暂无周期' : '请选择')}
-            loading={loadingAnchors}
-            value={selected}
-            onChange={setSelected}
-            options={anchors.map(a => ({
-              label: `${a.anchor}  (${a.n} 笔)`,
-              value: a.anchor,
-            }))}
-            disabled={anchors.length === 0}
-          />
-          {rows.length > 0 && (
-            <span style={{ color: '#666', fontSize: 13, marginLeft: 16 }}>
-              本周期合计：
-              毛 <PnlCell value={grossPnl} digits={2} />
-              {' '}手续费 <PnlCell value={totalComm} digits={2} />
-              {' '}资金费 <PnlCell value={totalFunding} digits={2} />
-              {' '}净 <PnlCell value={netPnl} digits={2} />
-            </span>
-          )}
-        </Space>
-      </Card>
+    <div className="panel-stack">
+      <PageHeader
+        title="开仓记录"
+        subtitle="按账户与周期查看每一笔实盘开仓的成交、费用与盈亏"
+        extra={
+          <div className="toolbar">
+            <Segmented options={ACCT_OPTIONS} value={acct} onChange={setAcct} />
+            <span className="toolbar-label">周期</span>
+            <Select
+              style={{ minWidth: 220 }}
+              placeholder={loadingAnchors ? '加载中...' : (anchors.length === 0 ? '暂无周期' : '请选择')}
+              loading={loadingAnchors}
+              value={selected}
+              onChange={setSelected}
+              options={anchors.map(a => ({
+                label: `${a.anchor}  (${a.n} 笔)`,
+                value: a.anchor,
+              }))}
+              disabled={anchors.length === 0}
+            />
+          </div>
+        }
+      />
 
-      <Card size="small">
+      <Panel
+        flush
+        title="周期明细"
+        subtitle={selected ? `${selected} · ${rows.length} 笔` : ''}
+        extra={rows.length > 0 && (
+          <div className="kv-row">
+            <div className="kv"><span className="kv-k">毛 PnL</span><span className="kv-v"><PnlCell value={grossPnl} /></span></div>
+            <div className="kv"><span className="kv-k">手续费</span><span className="kv-v"><PnlCell value={totalComm} /></span></div>
+            <div className="kv"><span className="kv-k">资金费</span><span className="kv-v"><PnlCell value={totalFunding} /></span></div>
+            <div className="kv"><span className="kv-k">净 PnL</span><span className="kv-v" style={{ fontSize: 16 }}><PnlCell value={netPnl} /></span></div>
+          </div>
+        )}
+      >
         <Spin spinning={loadingRows}>
           <Table
             columns={columns}
@@ -163,6 +140,7 @@ export default function OpenLog() {
               showSizeChanger: true,
               pageSizeOptions: [10, 20, 50, 100],
               showTotal: total => `共 ${total} 条`,
+              size: 'small',
             }}
             scroll={{ x: 'max-content' }}
             size="small"
@@ -176,16 +154,7 @@ export default function OpenLog() {
             locale={{ emptyText: anchors.length === 0 ? `暂无任何 ${acct} 周期开仓数据` : '该周期暂无数据' }}
           />
         </Spin>
-      </Card>
-
-      <style>{`
-        .row-profit td { background: #f6ffed !important; }
-        .row-loss   td { background: #fff1f0 !important; }
-        .row-open   td { background: #e6f4ff !important; }
-        @media (max-width: 768px) {
-          .ant-table-cell { white-space: normal !important; word-break: break-all; }
-        }
-      `}</style>
+      </Panel>
     </div>
   )
 }

@@ -1,2 +1,2 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #f0f2f5; }
+html, body, #root { overflow-x: hidden; width: 100%; }

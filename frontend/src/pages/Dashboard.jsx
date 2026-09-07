@@ -1,24 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, Select, Space, Switch, message, Modal } from 'antd'
-import { ReloadOutlined, WalletOutlined, DollarOutlined } from '@ant-design/icons'
+import { Row, Col, Table, Spin, Button, Select, Switch, message, Modal } from 'antd'
+import { ReloadOutlined, WalletOutlined, DollarOutlined, FireOutlined } from '@ant-design/icons'
 import axios from 'axios'
-
-function pnlColor(n) {
-  const v = parseFloat(n)
-  if (v > 0) return '#3f8600'
-  if (v < 0) return '#cf1322'
-  return '#999'
-}
-
-function PnlCell({ value, digits = 2 }) {
-  const n = parseFloat(value)
-  if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(n), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(digits)}
-    </span>
-  )
-}
+import { PnlCell, Num, Chip, Panel, PageHeader, Stat } from '../components/ui'
+import { pnlColor, pnlTone, fmtSigned } from '../lib/fmt'
 
 // ── 按周期分组的列（实盘 batch）──
 const batchColumns = [
@@ -29,20 +14,21 @@ const batchColumns = [
     width: 110,
     sorter: (a, b) => (a.open_time_key || '').localeCompare(b.open_time_key || ''),
     defaultSortOrder: 'descend',
+    render: v => <span className="num" style={{ fontWeight: 500 }}>{v}</span>,
   },
   {
     title: '平仓',
     dataIndex: 'close_time_short',
     key: 'close_time',
-    width: 75,
-    render: v => v || <Tag color="blue">持仓中</Tag>,
+    width: 104,
+    render: v => v ? <span className="num muted" style={{ whiteSpace: 'nowrap' }}>{v}</span> : <Chip tone="blue">持仓中</Chip>,
   },
-  { title: '笔', dataIndex: 'n', key: 'n', width: 40 },
+  { title: '笔', dataIndex: 'n', key: 'n', width: 44, align: 'right' },
   {
     title: '毛PnL',
     dataIndex: 'gross_pnl',
     key: 'gross_pnl',
-    width: 80,
+    width: 84, align: 'right',
     render: v => <PnlCell value={v} />,
     sorter: (a, b) => (a.gross_pnl || 0) - (b.gross_pnl || 0),
   },
@@ -50,21 +36,21 @@ const batchColumns = [
     title: '手续费',
     dataIndex: 'commission',
     key: 'commission',
-    width: 80,
+    width: 80, align: 'right',
     render: v => <PnlCell value={v} digits={3} />,
   },
   {
     title: '资金费',
     dataIndex: 'funding',
     key: 'funding',
-    width: 75,
+    width: 78, align: 'right',
     render: v => <PnlCell value={v} digits={3} />,
   },
   {
     title: '净PnL',
     dataIndex: 'net_pnl',
     key: 'net_pnl',
-    width: 80,
+    width: 84, align: 'right',
     render: v => <PnlCell value={v} />,
     sorter: (a, b) => (a.net_pnl || 0) - (b.net_pnl || 0),
   },
@@ -72,20 +58,22 @@ const batchColumns = [
 
 // ── 实时持仓表的列 ──
 const positionColumns = [
-  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 100 },
-  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 90,
-    render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90,
-    render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '数量', dataIndex: 'position_amt', key: 'position_amt', width: 80 },
+  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110,
+    render: v => <span style={{ fontWeight: 600 }}>{v}</span> },
+  { title: '入场价', dataIndex: 'entry_price', key: 'entry_price', width: 92, align: 'right',
+    render: v => <Num value={v} digits={4} /> },
+  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 92, align: 'right',
+    render: v => <Num value={v} digits={4} /> },
+  { title: '数量', dataIndex: 'position_amt', key: 'position_amt', width: 80, align: 'right',
+    render: v => <span className="num">{v}</span> },
   {
-    title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 80,
+    title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 80, align: 'right',
     render: v => <PnlCell value={v} />,
     sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0),
   },
   {
-    title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 75,
-    render: v => v == null ? '-' : <span style={{ color: pnlColor(v), fontWeight: 500 }}>{v >= 0 ? '+' : ''}{parseFloat(v).toFixed(2)}%</span>,
+    title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 78, align: 'right',
+    render: v => v == null ? '-' : <PnlCell value={v} suffix="%" />,
   },
 ]
 
@@ -126,38 +114,58 @@ function groupBatches(rows, sideFilter) {
 
 const sumPnl = arr => arr.reduce((a, p) => a + (parseFloat(p.unrealized_pnl) || 0), 0)
 
-// ── 一个账户的余额卡（余额 + 保证金两块）──
-function AccountCard({ tag, tagColor, subtitle, rt }) {
-  const configured = rt?.configured !== false
-  const hasError = configured && rt?.error
+// ── 开关胶囊：自动开单 / 组内止损 ──
+function SwitchChip({ label, checked, disabled, onChange, alert }) {
   return (
-    <Card size="small" title={
-      <span>
-        <Tag color={tagColor}>{tag}</Tag>
-        <span style={{ color: '#999', fontSize: 12 }}>{subtitle}</span>
-      </span>
-    }>
-      {!configured ? (
-        <span style={{ color: '#999' }}>未配置密钥（.env.sub24h）</span>
-      ) : hasError ? (
-        <span style={{ color: '#cf1322' }}>查询失败：{String(rt.error).slice(0, 60)}</span>
-      ) : (
-        <Row gutter={12}>
-          <Col span={12}>
-            <Statistic title="账户余额" value={rt?.balance ?? 0} precision={2} suffix="U"
-              prefix={<WalletOutlined />} valueStyle={{ color: '#13c2c2', fontSize: 22 }} />
-          </Col>
-          <Col span={12}>
-            <Statistic title="保证金占用" value={rt?.margin_used ?? 0} precision={2} suffix="U"
-              prefix={<DollarOutlined />} valueStyle={{ color: '#fa8c16', fontSize: 22 }} />
-          </Col>
-        </Row>
-      )}
-    </Card>
+    <span className={`switch-chip ${alert ? 'alert' : ''}`}>
+      {label}
+      <Switch size="small" checked={checked} disabled={disabled} onChange={onChange} />
+    </span>
   )
 }
 
-// ── 一个账户的实时持仓块（跌幅榜-空）+ 一键平仓 ──
+// ── 账户头卡：名称 + 策略说明 + 开关 + 余额/保证金/浮盈 ──
+function AccountHeader({ tag, tagTone, name, note, rt, switches, switchesLoaded, toggleSwitch, switchKey, slKey, slLabel }) {
+  const configured = rt?.configured !== false
+  const hasError = configured && rt?.error
+  const positions = rt?.positions || []
+  const losers = positions.filter(p => p.side?.includes('跌幅'))
+  const floating = sumPnl(losers)
+
+  return (
+    <Panel
+      flush
+      title={<><Chip tone={tagTone}>{tag}</Chip>{name}</>}
+      subtitle={note}
+      extra={
+        <>
+          <SwitchChip label="自动开单" checked={switches[switchKey] !== false} disabled={!switchesLoaded}
+            alert={switches[switchKey] === false} onChange={v => toggleSwitch(switchKey, v, 'open')} />
+          <SwitchChip label={slLabel} checked={switches[slKey] === true} disabled={!switchesLoaded}
+            alert={switches[slKey] === true} onChange={v => toggleSwitch(slKey, v, 'sl')} />
+        </>
+      }
+    >
+      {!configured ? (
+        <div className="muted" style={{ padding: 16 }}>未配置密钥（.env.sub24h）</div>
+      ) : hasError ? (
+        <div style={{ padding: 16, color: pnlColor(-1) }}>查询失败：{String(rt.error).slice(0, 60)}</div>
+      ) : (
+        <div className="stat-strip">
+          <Stat icon={<WalletOutlined />} label="账户余额" unit="U"
+            value={<Num value={rt?.balance ?? 0} digits={2} />} />
+          <Stat icon={<DollarOutlined />} label="保证金占用" unit="U" tone={rt?.margin_used > 0 ? 'brand' : undefined}
+            value={<Num value={rt?.margin_used ?? 0} digits={2} />} />
+          <Stat icon={<FireOutlined />} label="持仓浮盈" unit="U" tone={losers.length ? pnlTone(floating) : 'flat'}
+            value={losers.length ? fmtSigned(floating) : '—'}
+            hint={`${losers.length} 笔持仓中`} />
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// ── 实时持仓（跌幅榜-空）+ 一键平仓 ──
 function PositionsBlock({ rt, strategyKey, accountLabel }) {
   const positions = (rt?.positions || []).map((p, i) => ({ ...p, key: i }))
   const losers = positions.filter(p => p.side?.includes('跌幅'))
@@ -177,68 +185,68 @@ function PositionsBlock({ rt, strategyKey, accountLabel }) {
   }
 
   return (
-    <Card size="small" style={{ marginBottom: 12 }} title={
-      <span>实时持仓<span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{positions.length} 笔</span></span>
-    }>
-      <Card size="small" type="inner"
-        title={
-          <span>
-            <Tag color="cyan">跌幅榜-空</Tag>
-            <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-              {losers.length} 笔  浮盈 <PnlCell value={sumPnl(losers)} />
-            </span>
-          </span>
-        }
-        extra={
-          <Button size="small" danger disabled={losers.length === 0} onClick={doForceClose}>
-            一键平仓
-          </Button>
-        }
-      >
-        <Table
-          columns={positionColumns}
-          dataSource={losers}
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          size="small"
-          rowClassName={r => (r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : '')}
-          locale={{ emptyText: '无持仓' }}
-        />
-      </Card>
+    <Panel
+      flush
+      title="实时持仓"
+      subtitle={`${positions.length} 笔`}
+      extra={
+        <Button size="small" danger disabled={losers.length === 0} onClick={doForceClose}>
+          一键平仓
+        </Button>
+      }
+    >
+      <div className="sub-head">
+        <Chip tone="cyan">跌幅榜-空</Chip>
+        <span>{losers.length} 笔</span>
+        <span className="kv-inline">浮盈 <PnlCell value={sumPnl(losers)} /></span>
+      </div>
+      <Table
+        columns={positionColumns}
+        dataSource={losers}
+        pagination={false}
+        scroll={{ x: 'max-content' }}
+        size="small"
+        rowClassName={r => (r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : '')}
+        locale={{ emptyText: '无持仓' }}
+      />
       {others.length > 0 && (
-        <Card size="small" type="inner" title="其他" style={{ marginTop: 12 }}>
+        <>
+          <div className="sub-head"><Chip tone="grey">其他</Chip><span>{others.length} 笔</span></div>
           <Table columns={positionColumns} dataSource={others} pagination={false}
             scroll={{ x: 'max-content' }} size="small" />
-        </Card>
+        </>
       )}
-    </Card>
+    </Panel>
   )
 }
 
-// ── 一个账户的按周期分组表 ──
-function BatchBlock({ batches, netPnl, loading }) {
-  const title = (
-    <span>
-      <Tag color="cyan">跌幅榜-空</Tag>
-      <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-        {batches.length} 周期  净 <PnlCell value={netPnl} />
-      </span>
-    </span>
-  )
+// ── 按周期分组表 ──
+function BatchBlock({ batches, netPnl, loading, extra }) {
   return (
-    <Spin spinning={loading}>
-      <Card size="small" title={title} style={{ marginBottom: 16 }}>
+    <Panel
+      flush
+      title="周期记录"
+      subtitle={`${batches.length} 周期`}
+      extra={
+        <>
+          <span className="kv-inline">累计净 <PnlCell value={netPnl} /></span>
+          {extra}
+        </>
+      }
+    >
+      <Spin spinning={loading}>
+        <div className="sub-head"><Chip tone="cyan">跌幅榜-空</Chip><span>无过滤 · 净 = 毛 + 手续费 + 资金费</span></div>
         <Table
           columns={batchColumns}
           dataSource={batches}
-          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 30, 50] }}
+          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 30, 50], size: 'small' }}
           scroll={{ x: 'max-content' }}
           size="small"
           rowClassName={r => (r.net_pnl > 0 ? 'row-profit' : r.net_pnl < 0 ? 'row-loss' : '')}
           locale={{ emptyText: '暂无记录' }}
         />
-      </Card>
-    </Spin>
+      </Spin>
+    </Panel>
   )
 }
 
@@ -312,86 +320,49 @@ export default function Dashboard() {
   const loserBatches24 = useMemo(() => groupBatches(logs24, '跌幅榜-空（无过滤）'), [logs24])
   const net24 = loserBatches24.reduce((a, b) => a + b.net_pnl, 0)
 
-  // 区块头：标题 + 自动开单开关 + 组内止损开关（止损阈值的权威值在 real_trade_{8h,24h}.py 的 STOP_LOSS_PNL，这里仅展示）
-  const sectionHeader = (text, sub, switchKey, slKey, slLabel) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '4px 0 12px' }}>
-      <div style={{ fontWeight: 600, fontSize: 15 }}>
-        {text} <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>{sub}</span>
-      </div>
-      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, flexWrap: 'wrap' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6,
-                       color: switches[switchKey] === false ? '#cf1322' : '#666' }}>
-          自动开单
-          <Switch size="small" checked={switches[switchKey] !== false} disabled={!switchesLoaded}
-            onChange={v => toggleSwitch(switchKey, v, 'open')} />
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6,
-                       color: switches[slKey] === true ? '#cf1322' : '#666' }}>
-          {slLabel}
-          <Switch size="small" checked={switches[slKey] === true} disabled={!switchesLoaded}
-            onChange={v => toggleSwitch(slKey, v, 'sl')} />
-        </span>
-      </span>
-    </div>
-  )
+  const switchProps = { switches, switchesLoaded, toggleSwitch }
 
   return (
     <div>
-      {/* 顶部刷新栏 */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 10,
-        background: '#f5f7fa', padding: '8px 0', marginBottom: 8,
-        display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-        gap: 8, flexWrap: 'wrap',
-      }}>
-        <span style={{ color: '#666', fontSize: 13 }}>
-          {updatedRt ? `更新于 ${updatedRt}` : '未刷新'}
-        </span>
-        <Button type="primary" icon={<ReloadOutlined />}
-          loading={loadingRt || loadingLog} onClick={fetchAll} style={{ flexShrink: 0 }}>
-          刷新全部
-        </Button>
-      </div>
+      <PageHeader
+        title="实盘看板"
+        subtitle="子账号1 · 8h  /  子账号2 · 24h · 跌幅榜-空（无过滤）"
+        extra={
+          <>
+            <span className="page-meta">{updatedRt ? `更新于 ${updatedRt}` : '未刷新'}</span>
+            <Button type="primary" icon={<ReloadOutlined />}
+              loading={loadingRt || loadingLog} onClick={fetchAll}>
+              刷新全部
+            </Button>
+          </>
+        }
+      />
 
-      {/* 顶部：两个账户余额卡 */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={12}>
-          <AccountCard tag="子账号1" tagColor="blue" subtitle="8h 实盘" rt={rt} />
-        </Col>
-        <Col xs={24} sm={12}>
-          <AccountCard tag="子账号2" tagColor="purple" subtitle="24h 实盘" rt={rt24} />
-        </Col>
-      </Row>
-
-      {/* ── 8h（主账号）与 24h（子账号）左右并排；窄屏自动上下堆叠 ── */}
+      {/* ── 8h（子账号1）与 24h（子账号2）左右并排；窄屏自动上下堆叠 ── */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          {sectionHeader('子账号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h', 'real_8h', 'stoploss_8h', '止损 −30U')}
-          <PositionsBlock rt={rt} strategyKey="real_8h" accountLabel="子账号1 · 8h" />
-          <div style={{ marginBottom: 12 }}>
-            <Space wrap>
-              <span style={{ color: '#666' }}>按时段筛选：</span>
-              <Select size="small" style={{ minWidth: 140 }} value={timeFilter} onChange={setTimeFilter}
-                options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: t, value: t }))]} />
-              {timeFilter !== 'all' && <Tag color="blue">仅看 {timeFilter} 周期</Tag>}
-            </Space>
+          <div className="panel-stack">
+            <AccountHeader tag="子账号1" tagTone="blue" name="8h 实盘" rt={rt}
+              note="组内 +16U 提前平，否则跑满 8h"
+              switchKey="real_8h" slKey="stoploss_8h" slLabel="止损 −30U" {...switchProps} />
+            <PositionsBlock rt={rt} strategyKey="real_8h" accountLabel="子账号1 · 8h" />
+            <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog}
+              extra={
+                <Select size="small" style={{ minWidth: 120 }} value={timeFilter} onChange={setTimeFilter}
+                  options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: `${t} 周期`, value: t }))]} />
+              } />
           </div>
-          <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
         </Col>
         <Col xs={24} lg={12}>
-          {sectionHeader('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +50U 提前平，否则跑满 24h（5x）', 'real_24h', 'stoploss_24h', '止损 −150U')}
-          <PositionsBlock rt={rt24} strategyKey="real_24h" accountLabel="子账号2 · 24h" />
-          <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
+          <div className="panel-stack">
+            <AccountHeader tag="子账号2" tagTone="purple" name="24h 实盘" rt={rt24}
+              note="组内 +50U 提前平，否则跑满 24h（5x）"
+              switchKey="real_24h" slKey="stoploss_24h" slLabel="止损 −150U" {...switchProps} />
+            <PositionsBlock rt={rt24} strategyKey="real_24h" accountLabel="子账号2 · 24h" />
+            <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
+          </div>
         </Col>
       </Row>
-
-      <style>{`
-        .row-profit td { background: #f6ffed !important; }
-        .row-loss td { background: #fff1f0 !important; }
-        @media (max-width: 768px) {
-          .ant-table-cell { white-space: normal !important; word-break: break-all; }
-        }
-      `}</style>
     </div>
   )
 }

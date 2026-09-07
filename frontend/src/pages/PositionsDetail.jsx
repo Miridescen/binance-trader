@@ -1,39 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Table, Card, Tag, Spin, Select, Space } from 'antd'
+import { Table, Spin, Select } from 'antd'
 import axios from 'axios'
-
-function pnlColor(val) {
-  const n = parseFloat(val)
-  if (n > 0) return '#3f8600'
-  if (n < 0) return '#cf1322'
-  return '#999'
-}
-
-function PnlCell({ value }) {
-  const n = parseFloat(value)
-  if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>
-}
-
-function RoeCell({ value }) {
-  const n = parseFloat(value)
-  if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return <span style={{ color: pnlColor(n), fontWeight: 500 }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
-}
+import { PnlCell, Num, SideChip, Panel, PageHeader } from '../components/ui'
 
 const columns = [
-  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110, filters: [], onFilter: (v, r) => r.symbol === v },
-  { title: '方向', dataIndex: 'side', key: 'side', width: 140, render: v => {
-    let color = 'default'
-    if (v?.includes('涨幅') && v?.includes('空')) color = 'green'
-    else if (v?.includes('跌幅') && v?.includes('空')) color = 'cyan'
-    return <Tag color={color}>{v}</Tag>
-  }},
-  { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, render: v => v ? parseFloat(v).toFixed(4) : '-' },
-  { title: '持仓量', dataIndex: 'position_amt', key: 'position_amt', width: 80, render: v => v ? parseFloat(v) : '-' },
-  { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 90, render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },
-  { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80, render: v => <RoeCell value={v} />, sorter: (a, b) => (a.roe_pct || 0) - (b.roe_pct || 0) },
+  { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 110, filters: [], onFilter: (v, r) => r.symbol === v,
+    render: v => <span style={{ fontWeight: 600 }}>{v}</span> },
+  { title: '方向', dataIndex: 'side', key: 'side', width: 150, render: v => <SideChip side={v} /> },
+  { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', width: 90, align: 'right', render: v => <Num value={v} digits={4} /> },
+  { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', width: 90, align: 'right', render: v => <Num value={v} digits={4} /> },
+  { title: '持仓量', dataIndex: 'position_amt', key: 'position_amt', width: 80, align: 'right', render: v => v ? <span className="num">{parseFloat(v)}</span> : '-' },
+  { title: '盈亏', dataIndex: 'unrealized_pnl', key: 'unrealized_pnl', width: 90, align: 'right', render: v => <PnlCell value={v} />, sorter: (a, b) => (a.unrealized_pnl || 0) - (b.unrealized_pnl || 0) },
+  { title: 'ROE', dataIndex: 'roe_pct', key: 'roe_pct', width: 80, align: 'right', render: v => <PnlCell value={v} suffix="%" />, sorter: (a, b) => (a.roe_pct || 0) - (b.roe_pct || 0) },
 ]
 
 export default function PositionsDetail() {
@@ -77,36 +55,38 @@ export default function PositionsDetail() {
   }, [filterTime])
 
   return (
-    <Card size="small">
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Select
-          placeholder="选择日期"
-          options={dates.map(d => ({ label: d, value: d }))}
-          value={filterDate}
-          onChange={v => setFilterDate(v)}
-          style={{ width: 130 }}
-        />
-        <Select
-          placeholder="选择时间"
-          options={times.map(t => ({ label: t.slice(11, 19), value: t }))}
-          value={filterTime}
-          onChange={v => setFilterTime(v)}
-          disabled={!times.length}
-          style={{ width: 120 }}
-          showSearch
-        />
-        <span style={{ color: '#999', fontSize: 12 }}>{data.length} 条</span>
-      </Space>
-      <Spin spinning={loading}>
-        <Table columns={columns} dataSource={data} pagination={false}
-          scroll={{ x: 'max-content' }} size="small"
-          rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
-      </Spin>
-      <style>{`
-        .row-profit td { background: #f6ffed !important; }
-        .row-loss td { background: #fff1f0 !important; }
-        @media (max-width: 768px) { .ant-table-cell { white-space: normal !important; word-break: break-all; } }
-      `}</style>
-    </Card>
+    <div className="panel-stack">
+      <PageHeader
+        title="持仓快照"
+        subtitle="按日期与时间点回看每小时的单仓盈亏明细"
+        extra={
+          <div className="toolbar">
+            <Select
+              placeholder="选择日期"
+              options={dates.map(d => ({ label: d, value: d }))}
+              value={filterDate}
+              onChange={v => setFilterDate(v)}
+              style={{ width: 140 }}
+            />
+            <Select
+              placeholder="选择时间"
+              options={times.map(t => ({ label: t.slice(11, 19), value: t }))}
+              value={filterTime}
+              onChange={v => setFilterTime(v)}
+              disabled={!times.length}
+              style={{ width: 130 }}
+              showSearch
+            />
+          </div>
+        }
+      />
+      <Panel flush title="持仓明细" subtitle={`${data.length} 条`}>
+        <Spin spinning={loading}>
+          <Table columns={columns} dataSource={data} pagination={false}
+            scroll={{ x: 'max-content' }} size="small"
+            rowClassName={r => r.unrealized_pnl > 0 ? 'row-profit' : r.unrealized_pnl < 0 ? 'row-loss' : ''} />
+        </Spin>
+      </Panel>
+    </div>
   )
 }

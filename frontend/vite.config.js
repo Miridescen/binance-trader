@@ -11,7 +11,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:5001',
+      // 本地开发可用 API_PROXY 指向别的后端（如线上），默认本机 5001
+      '/api': process.env.API_PROXY || 'http://localhost:5001',
     },
   },
 })

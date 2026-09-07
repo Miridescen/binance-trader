@@ -1,25 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Table, Card, Tag, Spin, Row, Col, Statistic, Tabs, Select, Space } from 'antd'
+import { Table, Spin, Row, Col, Tabs, Select } from 'antd'
 import axios from 'axios'
+import { PnlCell, Chip, Panel, PageHeader, Stat } from '../components/ui'
+import { pnlColor, fmtSigned } from '../lib/fmt'
 
-function pnlColor(val) {
-  const n = parseFloat(val)
-  if (n > 0) return '#3f8600'
-  if (n < 0) return '#cf1322'
-  return '#999'
-}
-
-function PnlCell({ value }) {
-  const n = parseFloat(value)
-  if (isNaN(n)) return <span style={{ color: '#999' }}>-</span>
-  return (
-    <span style={{ color: pnlColor(value), fontWeight: 500 }}>
-      {n >= 0 ? '+' : ''}{n.toFixed(2)}
-    </span>
-  )
-}
-
-const fmtPnl = v => `${v >= 0 ? '+' : ''}${(v || 0).toFixed(2)}`
+const fmtPnl = v => fmtSigned(v || 0, 2)
 
 // 当前本地时间字符串（与 window_end 同格式，用于判断窗口是否已结束）
 function nowStr() {
@@ -39,42 +24,41 @@ const SIDE_PAIRS = [
 function buildGroupColumns(windowLabel) {
   return [
     {
-      title: '开仓时间', dataIndex: 'open_time', key: 'open_time', width: 130,
-      render: v => v ? v.slice(5, 16) : '-',
+      title: '开仓时间', dataIndex: 'open_time', key: 'open_time', width: 120,
+      render: v => v ? <span className="num" style={{ fontWeight: 500 }}>{v.slice(5, 16)}</span> : '-',
       sorter: true, defaultSortOrder: 'descend',
     },
-    { title: '笔数', dataIndex: 'n_orders', key: 'n_orders', width: 60 },
+    { title: '笔数', dataIndex: 'n_orders', key: 'n_orders', width: 56, align: 'right' },
     {
       title: '触发', key: 'trigger_kind', width: 90,
       render: (_, r) => {
-        if (r.n_hit > 0) return <Tag color="gold">+10u</Tag>
-        if (r.n_timed > 0) return <Tag color="default">{windowLabel} 定平</Tag>
-        return <Tag>持仓中</Tag>
+        if (r.n_hit > 0) return <Chip tone="gold">+10u</Chip>
+        if (r.n_timed > 0) return <Chip tone="grey">{windowLabel} 定平</Chip>
+        return <Chip tone="blue">持仓中</Chip>
       },
     },
     {
-      title: '实际 PnL', dataIndex: 'sum_pnl_actual', key: 'sum_pnl_actual', width: 110,
+      title: '实际 PnL', dataIndex: 'sum_pnl_actual', key: 'sum_pnl_actual', width: 100, align: 'right',
       render: v => <PnlCell value={v} />, sorter: true,
     },
     {
-      title: `走完${windowLabel}`, dataIndex: 'sum_pnl_if_held', key: 'sum_pnl_if_held', width: 130,
+      title: `走完${windowLabel}`, dataIndex: 'sum_pnl_if_held', key: 'sum_pnl_if_held', width: 130, align: 'right',
       render: (v, r) => {
         const pending = r.window_end && r.window_end > nowStr()
         return (
-          <span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <PnlCell value={v} />
-            {pending && <Tag color="processing" style={{ marginLeft: 6, fontSize: 11, lineHeight: '16px' }}>进行中</Tag>}
+            {pending && <Chip tone="blue" style={{ height: 18, fontSize: 11, padding: '0 6px' }}>进行中</Chip>}
           </span>
         )
       },
       sorter: true,
     },
     {
-      title: '差额', key: 'diff', width: 90,
+      title: '差额', key: 'diff', width: 84, align: 'right',
       render: (_, r) => {
         const d = parseFloat(r.sum_pnl_actual || 0) - parseFloat(r.sum_pnl_if_held || 0)
-        const color = d > 0 ? '#3f8600' : (d < 0 ? '#cf1322' : '#999')
-        return <span style={{ color, fontWeight: 500 }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}</span>
+        return <PnlCell value={d} />
       },
     },
   ]
@@ -123,19 +107,15 @@ function SideTable({ windowName, side, time, label, color, totals, inprogress, c
   }
 
   return (
-    <Card
-      size="small"
-      title={
-        <span>
-          <Tag color={color}>{label}</Tag>
-          <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
-            实际 <span style={{ color: pnlColor(t.sum_actual), fontWeight: 500 }}>{fmtPnl(t.sum_actual)}</span>
-          </span>
-          <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>
-            走完{windowLabel} <span style={{ color: pnlColor(t.sum_held), fontWeight: 500 }}>{fmtPnl(t.sum_held)}</span>
-          </span>
-          <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{t.n_groups || 0} 组</span>
-        </span>
+    <Panel
+      flush
+      title={<Chip tone={color}>{label}</Chip>}
+      subtitle={`${t.n_groups || 0} 组`}
+      extra={
+        <div className="kv-row" style={{ gap: 14 }}>
+          <span className="kv-inline">实际 <PnlCell value={t.sum_actual || 0} /></span>
+          <span className="kv-inline">走完{windowLabel} <PnlCell value={t.sum_held || 0} /></span>
+        </div>
       }
     >
       <Table
@@ -147,6 +127,7 @@ function SideTable({ windowName, side, time, label, color, totals, inprogress, c
           current: page, pageSize, total: data.total || 0,
           showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100],
           showTotal: tot => `共 ${tot} 组`,
+          size: 'small',
         }}
         scroll={{ x: 'max-content' }}
         size="small"
@@ -158,7 +139,7 @@ function SideTable({ windowName, side, time, label, color, totals, inprogress, c
         }}
         locale={{ emptyText: '暂无已收尾的组' }}
       />
-    </Card>
+    </Panel>
   )
 }
 
@@ -212,34 +193,30 @@ export default function VirtualLogWindow({ window = '4h' }) {
   const nTimed = totals.reduce((a, t) => a + (t.n_timed_groups || 0), 0)
 
   const sumActualBy = side => (totalsMap[side]?.sum_actual || 0)
+  const pct = n => nGroups ? `${((n / nGroups) * 100).toFixed(1)}%` : '—'
 
   return (
-    <div>
-      <div style={{ marginBottom: 12 }}>
-        <Space wrap>
-          <span style={{ color: '#666' }}>按时段筛选：</span>
-          <Select
-            size="small" style={{ minWidth: 140 }} value={timeFilter} onChange={setTimeFilter}
-            options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: t, value: t }))]}
-          />
-          {timeFilter !== 'all' && <Tag color="blue">仅看 {timeFilter} 周期</Tag>}
-        </Space>
+    <div className="panel-stack">
+      <PageHeader
+        title={`${window} 模拟盘`}
+        subtitle="四个方向 × 有/无过滤，对比「+10u 提前平」与「走完窗口」两种收尾的盈亏"
+        extra={
+          <div className="toolbar">
+            <span className="toolbar-label">时段</span>
+            <Select
+              style={{ minWidth: 130 }} value={timeFilter} onChange={setTimeFilter}
+              options={[{ label: '全部时段', value: 'all' }, ...timeOptions.map(t => ({ label: `${t} 周期`, value: t }))]}
+            />
+          </div>
+        }
+      />
+
+      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+        <Stat card label="+10u 触发组" value={nHit} unit={`/ ${nGroups}`} hint={`占比 ${pct(nHit)}`} tone="brand" />
+        <Stat card label={`${window} 定平组`} value={nTimed} unit={`/ ${nGroups}`} hint={`占比 ${pct(nTimed)}`} />
       </div>
 
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={12} md={12}>
-          <Card size="small">
-            <Statistic title="+10u触发组" value={nHit} suffix={`/ ${nGroups}`} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={12}>
-          <Card size="small">
-            <Statistic title={`${window}定平组`} value={nTimed} suffix={`/ ${nGroups}`} />
-          </Card>
-        </Col>
-      </Row>
-
-      <Card size="small">
+      <Panel className="panel-tabs" flush>
         <Spin spinning={loading}>
           <Tabs
             defaultActiveKey={SIDE_PAIRS[0].key}
@@ -249,16 +226,17 @@ export default function VirtualLogWindow({ window = '4h' }) {
               return {
                 key: p.key,
                 label: (
-                  <span>
-                    {p.label}{' '}
-                    <span style={{ fontSize: 12, color: '#666' }}>
-                      (有过滤 <span style={{ color: pnlColor(fPnl) }}>{fmtPnl(fPnl)}</span>
-                      , 无过滤 <span style={{ color: pnlColor(uPnl) }}>{fmtPnl(uPnl)}</span>)
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 600 }}>{p.label}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      <span style={{ color: pnlColor(fPnl) }}>{fmtPnl(fPnl)}</span>
+                      {' / '}
+                      <span style={{ color: pnlColor(uPnl) }}>{fmtPnl(uPnl)}</span>
                     </span>
                   </span>
                 ),
                 children: (
-                  <Row gutter={[12, 12]}>
+                  <Row gutter={[16, 16]}>
                     <Col xs={24} lg={12}>
                       <SideTable windowName={window} side={p.filtered} time={timeFilter}
                         label="有过滤" color={p.tagColor} totals={totalsMap[p.filtered]}
@@ -266,7 +244,7 @@ export default function VirtualLogWindow({ window = '4h' }) {
                     </Col>
                     <Col xs={24} lg={12}>
                       <SideTable windowName={window} side={p.unfiltered} time={timeFilter}
-                        label="无过滤" color="default" totals={totalsMap[p.unfiltered]}
+                        label="无过滤" color="grey" totals={totalsMap[p.unfiltered]}
                         inprogress={ipBySide[p.unfiltered] || []} columns={columns} windowLabel={window} />
                     </Col>
                   </Row>
@@ -275,15 +253,7 @@ export default function VirtualLogWindow({ window = '4h' }) {
             })}
           />
         </Spin>
-      </Card>
-
-      <style>{`
-        .row-profit td { background: #f6ffed !important; }
-        .row-loss   td { background: #fff1f0 !important; }
-        @media (max-width: 768px) {
-          .ant-table-cell { white-space: normal !important; word-break: break-all; }
-        }
-      `}</style>
+      </Panel>
     </div>
   )
 }
