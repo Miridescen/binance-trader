@@ -11,6 +11,7 @@
       · 合计浮盈 ≥ +10U → 整组立即市价平仓（close_reason 记为 组内+10u）
       · 到 24h 窗口末（open_anchor+24h 前 10 分钟起）仍没触发 → 定时平仓
         （限价 ladder + 市价兜底，close_reason=24h_timed）
+      · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（3×每单保证金=150U）→ 整组立即市价平（close_reason=止损）
   - 数据：open_log_24h 表（独立于 8h，避免 8h 进程误管 24h 仓），成交后回填真实 commission / funding_fee
 
 账户隔离：
@@ -57,11 +58,14 @@ log = logging.getLogger("real_24h")
 
 LIVE = os.environ.get("REAL_24H_LIVE") == "1"
 
-SWITCH_KEY = "real_24h"   # 自动开单开关标识（看板可切换；关闭仅跳过开新仓，监控/平仓照常）
+SWITCH_KEY   = "real_24h"      # 自动开单开关标识（看板可切换；关闭仅跳过开新仓，监控/平仓照常）
+STOPLOSS_KEY = "stoploss_24h"  # 组内止损开关标识（看板可切换；默认关，见 db.SWITCH_DEFAULTS）
 
 # ── 策略参数 ──
 WINDOW_HOURS      = 24
 TARGET_GROUP_PNL  = 50.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（随仓位×5 同步放大：10U→50U，保持与回测相同的%行为）
+STOP_LOSS_PNL     = 3 * MARGIN_PER_POS * SIZE_MULT   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（3×每单保证金 = 150U ≈ 名义 10%；受 STOPLOSS_KEY 开关控制）
+_last_sl_on       = None                # 止损开关上一次读到的状态，仅用于在切换时打一条日志
 OPEN_HOURS        = (0,)                 # 开仓整点：每天 00:30
 OPEN_MINUTE       = 30
 OPEN_WINDOW_MIN   = 5                     # 开仓滑动窗口（幂等）
@@ -537,6 +541,11 @@ def monitor_batches():
         log.warning(f"取全量标记价失败：{e}")
         return
     now = datetime.now()
+    sl_on = db.get_switch(STOPLOSS_KEY)   # 每轮读一次，看板切换后下一轮（≤30s）即生效
+    global _last_sl_on
+    if sl_on != _last_sl_on:
+        log.info(f"[止损开关] {'开启' if sl_on else '关闭'}（组内合计浮盈 ≤ -{STOP_LOSS_PNL:.0f}U 整组市价平）")
+        _last_sl_on = sl_on
     for (anchor, side), brows in batches.items():
         if not anchor:
             continue
@@ -550,6 +559,10 @@ def monitor_batches():
         if pnl is not None and pnl >= TARGET_GROUP_PNL:
             log.info(f"★ 组内止盈触发(≥{TARGET_GROUP_PNL:.0f}U)  {side} @ {anchor}  合计浮盈 {pnl:+.2f}U → 整组市价平")
             close_batch(brows, reason="组内+10u", market_now=True)
+            continue
+        if sl_on and pnl is not None and pnl <= -STOP_LOSS_PNL:
+            log.info(f"⛔ 组内止损触发(≤-{STOP_LOSS_PNL:.0f}U)  {side} @ {anchor}  合计浮盈 {pnl:+.2f}U → 整组市价平")
+            close_batch(brows, reason="止损", market_now=True)
             continue
         if now >= window_end - timedelta(minutes=CLOSE_PREP_MIN):
             log.info(f"batch {side} @ {anchor} 到窗口末（浮盈 {pnl}）→ 定时平")
@@ -599,6 +612,7 @@ def main():
     log.info(f"  开仓：每天 {OPEN_HOURS} 点 {OPEN_MINUTE} 分")
     log.info(f"  方向：{[d[0] for d in DIRECTIONS]}，各 TOP{TOP_N}")
     log.info(f"  平仓：组内浮盈 ≥ {TARGET_GROUP_PNL}U 提前市价平，否则跑满 {WINDOW_HOURS}h 定时平")
+    log.info(f"  止损：开关={'开' if db.get_switch(STOPLOSS_KEY) else '关'}  组内合计浮盈 ≤ -{STOP_LOSS_PNL:.0f}U → 整组市价平（看板可切，close_reason=止损）")
     log.info(f"  参数：{LEVERAGE}x  {MARGIN_PER_POS*SIZE_MULT}U/单  名义 {NOTIONAL}U（×{SIZE_MULT} 放大）")
 
     last_open_anchor = None   # 观察模式下用于同一 anchor 去重

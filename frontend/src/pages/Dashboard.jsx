@@ -251,38 +251,46 @@ export default function Dashboard() {
   const [loadingLog, setLoadingLog] = useState(true)
   const [updatedRt, setUpdatedRt] = useState(null)
   const [timeFilter, setTimeFilter] = useState('all') // 8h 按时段筛选
-  const [switches, setSwitches] = useState({ real_8h: true, real_24h: true }) // 自动开单开关
+  // 开关：real_* 自动开单（默认开）；stoploss_* 组内止损（默认关）。真值以 /api/switches 为准
+  const [switches, setSwitches] = useState({ real_8h: true, real_24h: true, stoploss_8h: false, stoploss_24h: false })
+  const [switchesLoaded, setSwitchesLoaded] = useState(false) // 首次成功拉到 /api/switches 前，开关灰掉，不把挂载默认值当真相展示
 
   const fetchAll = async () => {
     setLoadingRt(true)
     setLoadingLog(true)
-    try {
-      const [r1, r2, r3, r4, r5] = await Promise.all([
-        axios.get('/api/realtime'),
-        axios.get('/api/open_log_8h'),
-        axios.get('/api/realtime_24h'),
-        axios.get('/api/open_log_24h'),
-        axios.get('/api/switches'),
-      ])
-      if (!r1.data.error) setRt(r1.data)
-      setLogs(r2.data || [])
-      setRt24(r3.data || null)
-      setLogs24(r4.data || [])
-      if (r5.data && !r5.data.error) setSwitches(r5.data)
-      setUpdatedRt(new Date().toLocaleTimeString())
-    } catch (e) {}
+    // 各请求独立结算：任一接口失败（如 /api/realtime 因币安抖动返回 500）不影响其余；
+    // 开关状态尤其必须独立刷新——它是“止损/自动开单是否已武装”的唯一显示依据
+    const [r1, r2, r3, r4, r5] = await Promise.allSettled([
+      axios.get('/api/realtime'),
+      axios.get('/api/open_log_8h'),
+      axios.get('/api/realtime_24h'),
+      axios.get('/api/open_log_24h'),
+      axios.get('/api/switches'),
+    ])
+    const ok = r => r.status === 'fulfilled' && r.value?.data && !r.value.data.error
+    if (ok(r1)) setRt(r1.value.data)
+    if (r2.status === 'fulfilled') setLogs(r2.value.data || [])
+    if (r3.status === 'fulfilled') setRt24(r3.value.data || null)
+    if (r4.status === 'fulfilled') setLogs24(r4.value.data || [])
+    if (ok(r5)) { setSwitches(s => ({ ...s, ...r5.value.data })); setSwitchesLoaded(true) } // 合并而非整体替换，避免覆盖刚点的乐观状态
+    setUpdatedRt(new Date().toLocaleTimeString())
     setLoadingRt(false)
     setLoadingLog(false)
   }
   useEffect(() => { fetchAll() }, [])
 
-  // 切换某策略的自动开单开关（乐观更新，失败回滚）
-  const toggleSwitch = async (key, val) => {
+  // 切换开关（乐观更新，失败回滚）。kind: 'open' 自动开单 | 'sl' 组内止损
+  const toggleSwitch = async (key, val, kind = 'open') => {
     setSwitches(s => ({ ...s, [key]: val }))
     try {
       await axios.post('/api/switch', { key, enabled: val })
-      if (val) message.success('已开启自动开单：下个周期恢复开仓')
-      else message.info('已关闭自动开单：下个周期不再开新仓（已有持仓的监控/平仓照常）')
+      if (kind === 'sl') {
+        if (val) message.warning('已开启组内止损：合计浮亏触及阈值时自动整组市价平仓（约 30 秒内生效）')
+        else message.info('已关闭组内止损')
+      } else {
+        if (val) message.success('已开启自动开单：下个周期恢复开仓')
+        else message.info('已关闭自动开单：下个周期不再开新仓（已有持仓的监控/平仓照常）')
+      }
     } catch (e) {
       setSwitches(s => ({ ...s, [key]: !val }))
       message.error('切换失败，请重试')
@@ -304,16 +312,25 @@ export default function Dashboard() {
   const loserBatches24 = useMemo(() => groupBatches(logs24, '跌幅榜-空（无过滤）'), [logs24])
   const net24 = loserBatches24.reduce((a, b) => a + b.net_pnl, 0)
 
-  const sectionHeader = (text, sub, switchKey) => (
+  // 区块头：标题 + 自动开单开关 + 组内止损开关（止损阈值的权威值在 real_trade_{8h,24h}.py 的 STOP_LOSS_PNL，这里仅展示）
+  const sectionHeader = (text, sub, switchKey, slKey, slLabel) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '4px 0 12px' }}>
       <div style={{ fontWeight: 600, fontSize: 15 }}>
         {text} <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>{sub}</span>
       </div>
-      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
-                     fontSize: 13, color: switches[switchKey] === false ? '#cf1322' : '#666' }}>
-        自动开单
-        <Switch size="small" checked={switches[switchKey] !== false}
-          onChange={v => toggleSwitch(switchKey, v)} />
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, flexWrap: 'wrap' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6,
+                       color: switches[switchKey] === false ? '#cf1322' : '#666' }}>
+          自动开单
+          <Switch size="small" checked={switches[switchKey] !== false} disabled={!switchesLoaded}
+            onChange={v => toggleSwitch(switchKey, v, 'open')} />
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6,
+                       color: switches[slKey] === true ? '#cf1322' : '#666' }}>
+          {slLabel}
+          <Switch size="small" checked={switches[slKey] === true} disabled={!switchesLoaded}
+            onChange={v => toggleSwitch(slKey, v, 'sl')} />
+        </span>
       </span>
     </div>
   )
@@ -349,7 +366,7 @@ export default function Dashboard() {
       {/* ── 8h（主账号）与 24h（子账号）左右并排；窄屏自动上下堆叠 ── */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          {sectionHeader('子账号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h', 'real_8h')}
+          {sectionHeader('子账号1 · 8h 实盘', '跌幅榜-空（无过滤）· 组内 +16U 提前平，否则跑满 8h', 'real_8h', 'stoploss_8h', '止损 −30U')}
           <PositionsBlock rt={rt} strategyKey="real_8h" accountLabel="子账号1 · 8h" />
           <div style={{ marginBottom: 12 }}>
             <Space wrap>
@@ -362,7 +379,7 @@ export default function Dashboard() {
           <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog} />
         </Col>
         <Col xs={24} lg={12}>
-          {sectionHeader('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +50U 提前平，否则跑满 24h（5x）', 'real_24h')}
+          {sectionHeader('子账号2 · 24h 实盘', '跌幅榜-空（无过滤）· 组内 +50U 提前平，否则跑满 24h（5x）', 'real_24h', 'stoploss_24h', '止损 −150U')}
           <PositionsBlock rt={rt24} strategyKey="real_24h" accountLabel="子账号2 · 24h" />
           <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
         </Col>

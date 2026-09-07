@@ -413,25 +413,26 @@ def open_log_24h():
     return jsonify(_strip_id(db.get_open_log_24h_all()))
 
 
-# 已知的自动开单开关（前端显示这些；缺行=默认开启）
-SWITCH_KEYS = ["real_8h", "real_24h"]
+# 策略标识（一键平仓只认这两个）；开关清单与默认值以 db.SWITCH_DEFAULTS 为唯一事实源
+STRATEGY_KEYS = ["real_8h", "real_24h"]
+SWITCH_KEYS = list(db.SWITCH_DEFAULTS.keys())
 
 
 @app.route("/api/switches")
 def get_switches():
-    """返回各策略自动开单开关状态（缺记录=默认 true/开启）。"""
+    """返回各开关状态（自动开单 real_* 缺记录默认开；止损 stoploss_* 缺记录默认关）。"""
     saved = db.get_all_switches()
-    return jsonify({k: saved.get(k, True) for k in SWITCH_KEYS})
+    return jsonify({k: saved.get(k, db.SWITCH_DEFAULTS[k]) for k in SWITCH_KEYS})
 
 
 @app.route("/api/switch", methods=["POST"])
 def set_switch():
-    """切换某策略自动开单开关。body: {key, enabled(bool)}"""
+    """切换某个开关（自动开单 real_* / 组内止损 stoploss_*）。body: {key, enabled(bool)}"""
     data = request.get_json(force=True, silent=True) or {}
     key = data.get("key")
     enabled = data.get("enabled")
     if key not in SWITCH_KEYS or not isinstance(enabled, bool):
-        return jsonify({"error": "参数错误：key 需为已知策略，enabled 需为布尔"}), 400
+        return jsonify({"error": "参数错误：key 需为已知开关（real_8h/real_24h/stoploss_8h/stoploss_24h），enabled 需为布尔"}), 400
     db.set_switch(key, enabled)
     return jsonify({"ok": True, "key": key, "enabled": enabled})
 
@@ -442,7 +443,7 @@ def force_close():
     body: {key: real_8h|real_24h}。最多约 30 秒内执行（交易循环节奏）。"""
     data = request.get_json(force=True, silent=True) or {}
     key = data.get("key")
-    if key not in SWITCH_KEYS:
+    if key not in STRATEGY_KEYS:
         return jsonify({"error": "参数错误：key 需为 real_8h / real_24h"}), 400
     db.request_force_close(key)
     return jsonify({"ok": True, "key": key, "pending": True})
@@ -451,7 +452,7 @@ def force_close():
 @app.route("/api/force_close/status")
 def force_close_status():
     """查询各策略是否有待执行的一键平仓请求（用于看板显示“处理中”）。"""
-    return jsonify({k: db.has_force_close(k) for k in SWITCH_KEYS})
+    return jsonify({k: db.has_force_close(k) for k in STRATEGY_KEYS})
 
 
 @app.route("/api/open_log_24h/anchors")

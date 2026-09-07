@@ -333,7 +333,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_open_log_24h_anchor ON open_log_24h(open_anchor);
         CREATE INDEX IF NOT EXISTS idx_open_log_24h_symbol ON open_log_24h(symbol);
 
-        -- 策略自动开单开关（key=策略标识，如 real_8h / real_24h；缺行=默认开启）
+        -- 策略开关（自动开单 real_* / 组内止损 stoploss_*；缺行时按 db.SWITCH_DEFAULTS 取默认）
         CREATE TABLE IF NOT EXISTS strategy_switch (
             key         TEXT PRIMARY KEY,
             enabled     INTEGER NOT NULL DEFAULT 1,
@@ -910,10 +910,24 @@ def get_open_log_24h_pending_writeback() -> list[dict]:
         return [dict(r) for r in rows]
 
 
-# ── strategy_switch 操作（自动开单开关，缺行=默认开启）──────────────
+# ── strategy_switch 操作（各类开关；缺行时按 SWITCH_DEFAULTS 取默认）──────────────
 
-def get_switch(key: str, default: bool = True) -> bool:
-    """返回某策略的自动开单开关；无记录时返回 default（默认开启）。"""
+# 开关默认值的唯一事实源：api（展示）与交易脚本（行为）都从这里取，避免两边各写一份漂移。
+#   real_*     自动开单：默认开（不改变既有行为）
+#   stoploss_* 组内止损：默认关（新功能，用户在看板打开才生效）
+SWITCH_DEFAULTS = {
+    "real_8h": True,
+    "real_24h": True,
+    "stoploss_8h": False,
+    "stoploss_24h": False,
+}
+
+
+def get_switch(key: str, default: bool = None) -> bool:
+    """返回某开关状态；无记录时返回 default（未传则查 SWITCH_DEFAULTS，未知 key 默认关/fail-closed）。"""
+    if default is None:
+        # 未知 key 一律 fail-closed（False）：任何一侧的 key 笔误都不应悄悄“武装”止损或放行开仓
+        default = SWITCH_DEFAULTS.get(key, False)
     with get_conn() as conn:
         r = conn.execute("SELECT enabled FROM strategy_switch WHERE key = ?", (key,)).fetchone()
         return default if r is None else bool(r["enabled"])
