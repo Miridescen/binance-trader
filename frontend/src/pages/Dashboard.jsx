@@ -356,7 +356,7 @@ export default function Dashboard() {
         <Col xs={24} lg={12}>
           <div className="panel-stack">
             <AccountHeader tag="子账号2" tagTone="purple" name="24h 实盘" rt={rt24}
-              note="组内 +50U 提前平，否则跑满 24h（5x）"
+              note="组内 +65U 提前平，否则跑满 24h（5x）"
               switchKey="real_24h" slKey="stoploss_24h" slLabel="止损 −150U" {...switchProps} />
             <PositionsBlock rt={rt24} strategyKey="real_24h" accountLabel="子账号2 · 24h" />
             <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />

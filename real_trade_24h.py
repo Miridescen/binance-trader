@@ -1,14 +1,14 @@
 """
-24h 周期实盘策略（子账号 · batch 隔离 + 组内 +10U 提前平仓）。
+24h 周期实盘策略（子账号 · batch 隔离 + 组内 +65U 提前平仓，5x 仓位）。
 
 与 real_trade_8h.py 逻辑完全一致，仅周期/阈值/开仓时刻/数据表不同：
   - 每天 1 个开仓周期：00:30，持仓 24h
   - 方向：跌幅榜-空（无过滤）TOP10（复用 real_trade_4h.select_top10("跌幅榜")）
-  - 杠杆 3x，每单保证金 10 USDT，名义 30 USDT
+  - 杠杆 3x，每单保证金 50 USDT（SIZE_MULT=5），名义 150 USDT
   - 平仓（batch 隔离）：
       · 每个 batch =（open_anchor, side）一组 ~10 单，用 DB 记录的 entry_price + 实时标记价
         自行计算“合计浮盈”（税前，和虚拟盘 _calc_pnl 一致），互不干扰
-      · 合计浮盈 ≥ +10U → 整组立即市价平仓（close_reason 记为 组内+10u）
+      · 合计浮盈 ≥ +65U（归一 +13）→ 整组立即市价平仓（close_reason 仍记为 组内+10u，作“组内提前止盈”类别标签）
       · 到 24h 窗口末（open_anchor+24h 前 10 分钟起）仍没触发 → 定时平仓
         （限价 ladder + 市价兜底，close_reason=24h_timed）
       · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（3×每单保证金=150U）→ 整组立即市价平（close_reason=止损）
@@ -63,7 +63,7 @@ STOPLOSS_KEY = "stoploss_24h"  # 组内止损开关标识（看板可切换；�
 
 # ── 策略参数 ──
 WINDOW_HOURS      = 24
-TARGET_GROUP_PNL  = 50.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（随仓位×5 同步放大：10U→50U，保持与回测相同的%行为）
+TARGET_GROUP_PNL  = 65.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（5x 仓位；2026-09-09 由 50 调至 65＝归一 +13，依据扣费阈值扫描，见 CHANGELOG）
 STOP_LOSS_PNL     = 3 * MARGIN_PER_POS * SIZE_MULT   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（3×每单保证金 = 150U ≈ 名义 10%；受 STOPLOSS_KEY 开关控制）
 _last_sl_on       = None                # 止损开关上一次读到的状态，仅用于在切换时打一条日志
 OPEN_HOURS        = (0,)                 # 开仓整点：每天 00:30
