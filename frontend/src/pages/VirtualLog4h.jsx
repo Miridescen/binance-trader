@@ -108,7 +108,8 @@ function SideTable({ windowName, side, time, label, color, totals, inprogress, c
   }, [windowName, side, time, sort, page, pageSize])
 
   const isDefaultView = page === 1 && sort.field === 'open_time' && sort.order === 'desc'
-  const ipRows = isDefaultView ? inprogress : []
+  // 置顶的进行中组同样按开仓时间倒序，与表格默认排序一致
+  const ipRows = isDefaultView ? [...inprogress].sort((a, b) => (b.open_time || '').localeCompare(a.open_time || '')) : []
   const rows = [...ipRows, ...(data.rows || [])].map((r, i) => ({ ...r, key: `${r.open_time}|${r.side}|${i}` }))
 
   const t = totals || {}
