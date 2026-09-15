@@ -5,7 +5,8 @@ import os
 from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from binance_client import auth_get, auth_get_with
+from binance_client import auth_get, auth_get_with, get_all_mark_prices
+from virtual_trade_window import _calc_pnl as _virtual_calc_pnl   # 与模拟盘同一口径（3x / 10U）
 import db
 
 
@@ -181,13 +182,32 @@ def virtual_totals():
     return jsonify(db.get_virtual_summary_totals(w, time))
 
 
+_mark_cache = {"ts": 0.0, "map": None}   # 全市场标记价短缓存，避免多页并发刷新时反复打币安
+_MARK_CACHE_SEC = 10
+
+
+def _fresh_mark_prices():
+    """拉一次全市场标记价（10s 内复用）；失败返回 None，调用方退回快照。"""
+    import time as _time
+    now = _time.time()
+    if _mark_cache["map"] is not None and now - _mark_cache["ts"] < _MARK_CACHE_SEC:
+        return _mark_cache["map"]
+    try:
+        m = get_all_mark_prices()
+    except Exception:
+        return _mark_cache["map"]   # 拿不到就用上一次的（可能为 None）
+    _mark_cache["map"], _mark_cache["ts"] = m, now
+    return m
+
+
 @app.route("/api/virtual_inprogress")
 def virtual_inprogress():
-    """进行中的组（+10u 已提前平但窗口未结束），数量极少，实时算。?window=..."""
+    """进行中的组（窗口未结束）：含「+10u 已提前平」与「仍持仓中」两类，数量极少，实时算。
+    持仓中的组用实时标记价现算浮盈，拿不到价退回最近一次 5 分钟快照。?window=..."""
     w = _validate_window(request.args.get("window", "4h"))
     if w is None:
         return jsonify({"error": "invalid window"}), 400
-    return jsonify(db.get_virtual_inprogress(w))
+    return jsonify(db.get_virtual_inprogress(w, _fresh_mark_prices(), _virtual_calc_pnl))
 
 
 @app.route("/api/virtual_times")

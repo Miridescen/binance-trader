@@ -1093,12 +1093,17 @@ def get_virtual_summary_times(window: str) -> list:
         return [r["t"] for r in rows if r["t"]]
 
 
-def get_virtual_inprogress(window: str) -> list:
-    """进行中的组：window_end 未到、但已整组提前平仓（+10u）——实际已定，走完窗口值仍在动。
-    数量极少（当前窗口那几个），实时算。"""
+def get_virtual_inprogress(window: str, price_map: dict | None = None, calc_pnl=None) -> list:
+    """进行中的组（window_end 未到），两类都返回，数量极少，实时算：
+      ① 已整组提前平仓（+10u）——实际已定，「走完窗口」值仍在动；
+      ② 仍有未平单（n_open > 0）——实际 = 已平部分 + 未平部分浮盈，「走完窗口」暂等于实际。
+    未平单浮盈优先用 price_map（实时标记价）配合 calc_pnl(entry, mark, side) 现算；
+    拿不到价时退回该单最近一次 5 分钟快照。每行带 n_open / live_source（mark|snapshot|None）/ live_time。"""
     log_t = f"virtual_log_{window}"
     det_t = f"virtual_detail_{window}"
     timed = f"{window}_timed"
+    use_mark = bool(price_map) and calc_pnl is not None
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_conn() as conn:
         cand = conn.execute(f"""
             SELECT open_time, side, MAX(window_end) AS window_end, COUNT(*) AS n_orders,
@@ -1112,16 +1117,63 @@ def get_virtual_inprogress(window: str) -> list:
               AND window_end > datetime('now','localtime')
             GROUP BY open_time, side
         """, (timed,)).fetchall()
+        # 未平单：按 (open_time, side) 归组，逐单算浮盈
+        open_rows = conn.execute(f"""
+            SELECT id, open_time, side, symbol, entry_price
+            FROM {log_t}
+            WHERE window_end IS NOT NULL AND window_end != ''
+              AND window_end > datetime('now','localtime')
+              AND (close_time IS NULL OR close_time = '')
+        """).fetchall()
+        open_by_group: dict[tuple, list] = {}
+        for r in open_rows:
+            open_by_group.setdefault((r["open_time"], r["side"]), []).append(r)
+
         out = []
         for g in cand:
-            if g["n_open"] and g["n_open"] > 0:
-                continue  # 还没整组平（含全开仓中的窗口）→ 不显示，与旧行为一致
-            held = _virtual_group_held(conn, det_t, log_t, g["open_time"], g["side"], g["sum_actual"])
+            key = (g["open_time"], g["side"])
+            n_open = g["n_open"] or 0
+            if n_open == 0:
+                held = _virtual_group_held(conn, det_t, log_t, g["open_time"], g["side"], g["sum_actual"])
+                out.append({
+                    "open_time": g["open_time"], "window_end": g["window_end"], "side": g["side"],
+                    "n_orders": g["n_orders"], "n_hit": g["n_hit"], "n_timed": g["n_timed"],
+                    "sum_pnl_actual": g["sum_actual"], "sum_pnl_if_held": held,
+                    "close_reason": g["close_reason"],
+                    "n_open": 0, "live_source": None, "live_time": None,
+                })
+                continue
+            # ② 仍持仓：已平部分（sum_actual 只含已平单，未平单 unrealized_pnl 为 NULL）+ 未平浮盈
+            floating = 0.0
+            src = None
+            live_time = None
+            for r in open_by_group.get(key, []):
+                entry = r["entry_price"]
+                if entry is None:
+                    continue
+                mark = price_map.get(r["symbol"]) if use_mark else None
+                if mark is not None:
+                    pnl, _roe = calc_pnl(entry, mark, r["side"])
+                    floating += pnl
+                    src = src or "mark"
+                    live_time = now_ts
+                    continue
+                snap = conn.execute(
+                    f"SELECT unrealized_pnl, time FROM {det_t} WHERE log_id = ? ORDER BY time DESC LIMIT 1",
+                    (r["id"],)
+                ).fetchone()
+                if snap and snap["unrealized_pnl"] is not None:
+                    floating += snap["unrealized_pnl"]
+                    if src != "mark":
+                        src = "snapshot"
+                        live_time = snap["time"] if live_time is None or snap["time"] < live_time else live_time
+            actual = (g["sum_actual"] or 0.0) + floating
             out.append({
                 "open_time": g["open_time"], "window_end": g["window_end"], "side": g["side"],
                 "n_orders": g["n_orders"], "n_hit": g["n_hit"], "n_timed": g["n_timed"],
-                "sum_pnl_actual": g["sum_actual"], "sum_pnl_if_held": held,
+                "sum_pnl_actual": actual, "sum_pnl_if_held": actual,
                 "close_reason": g["close_reason"],
+                "n_open": n_open, "live_source": src, "live_time": live_time,
             })
         return out
 

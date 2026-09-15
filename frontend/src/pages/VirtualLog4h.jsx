@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Table, Spin, Row, Col, Tabs, Select } from 'antd'
+import { Table, Spin, Row, Col, Tabs, Select, Tooltip } from 'antd'
 import axios from 'axios'
 import { PnlCell, Chip, Panel, PageHeader, Stat } from '../components/ui'
-import { pnlColor, fmtSigned } from '../lib/fmt'
+import { pnlColor, pnlTone, fmtSigned } from '../lib/fmt'
 
 const fmtPnl = v => fmtSigned(v || 0, 2)
 
@@ -21,6 +21,13 @@ const SIDE_PAIRS = [
   { key: 'loser_long',   label: '跌幅榜-多', filtered: '跌幅榜-多（有过滤）', unfiltered: '跌幅榜-多（无过滤）', tagColor: 'orange' },
 ]
 
+// 持仓中组的浮盈来源提示：实时标记价 / 最近一次 5 分钟快照
+function liveHint(r) {
+  if (r.live_source === 'mark') return `未平 ${r.n_open} 笔，按实时标记价现算（${(r.live_time || '').slice(11, 19)}）`
+  if (r.live_source === 'snapshot') return `未平 ${r.n_open} 笔，按最近一次快照（${(r.live_time || '').slice(5, 16)}）`
+  return `未平 ${r.n_open} 笔，暂无价格`
+}
+
 // 服务端排序：列上标 sorter:true，由 Table onChange 触发后端排序
 function buildGroupColumns(windowLabel) {
   return [
@@ -33,14 +40,25 @@ function buildGroupColumns(windowLabel) {
     {
       title: '触发', key: 'trigger_kind', width: 90,
       render: (_, r) => {
+        if (r.n_open > 0) return <Chip tone="blue">持仓中</Chip>
         if (r.n_hit > 0) return <Chip tone="gold">+10u</Chip>
         if (r.n_timed > 0) return <Chip tone="grey">{windowLabel} 定平</Chip>
         return <Chip tone="blue">持仓中</Chip>
       },
     },
     {
-      title: '实际 PnL', dataIndex: 'sum_pnl_actual', key: 'sum_pnl_actual', width: 100, align: 'right',
-      render: v => <PnlCell value={v} />, sorter: true,
+      title: '实际 PnL', dataIndex: 'sum_pnl_actual', key: 'sum_pnl_actual', width: 110, align: 'right',
+      render: (v, r) => (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {r.n_open > 0 && (
+            <Tooltip title={liveHint(r)}>
+              <Chip tone="blue" style={{ height: 18, fontSize: 11, padding: '0 6px' }}>浮动</Chip>
+            </Tooltip>
+          )}
+          <PnlCell value={v} />
+        </span>
+      ),
+      sorter: true,
     },
     {
       title: `走完${windowLabel}`, dataIndex: 'sum_pnl_if_held', key: 'sum_pnl_if_held', width: 130, align: 'right',
@@ -189,9 +207,12 @@ export default function VirtualLogWindow({ window = '4h' }) {
     return m
   }, [ipFiltered])
 
+  const ipOpen = ipFiltered.filter(g => g.n_open > 0)               // 仍持仓中
+  const ipHit = ipFiltered.length - ipOpen.length                    // 已 +10u 提前平、等窗口结束
   const nGroups = totals.reduce((a, t) => a + (t.n_groups || 0), 0) + ipFiltered.length
-  const nHit = totals.reduce((a, t) => a + (t.n_hit_groups || 0), 0) + ipFiltered.length // 进行中均为 +10u 提前平
+  const nHit = totals.reduce((a, t) => a + (t.n_hit_groups || 0), 0) + ipHit
   const nTimed = totals.reduce((a, t) => a + (t.n_timed_groups || 0), 0)
+  const openFloating = ipOpen.reduce((a, g) => a + (parseFloat(g.sum_pnl_actual) || 0), 0)
 
   const sumActualBy = side => (totalsMap[side]?.sum_actual || 0)
   const pct = n => nGroups ? `${((n / nGroups) * 100).toFixed(1)}%` : '—'
@@ -212,9 +233,11 @@ export default function VirtualLogWindow({ window = '4h' }) {
         }
       />
 
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
         <Stat card label="+10u 触发组" value={nHit} unit={`/ ${nGroups}`} hint={`占比 ${pct(nHit)}`} tone="brand" />
         <Stat card label={`${window} 定平组`} value={nTimed} unit={`/ ${nGroups}`} hint={`占比 ${pct(nTimed)}`} />
+        <Stat card label="持仓中组" value={ipOpen.length} unit={`/ ${nGroups}`} tone={ipOpen.length ? pnlTone(openFloating) : 'flat'}
+          hint={ipOpen.length ? <>合计浮盈 <PnlCell value={openFloating} /></> : '当前没有未收尾的组'} />
       </div>
 
       <Panel className="panel-tabs" flush>
