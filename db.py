@@ -920,6 +920,7 @@ SWITCH_DEFAULTS = {
     "real_24h": True,
     "stoploss_8h": False,
     "stoploss_24h": False,
+    "presettle_24h": False,   # 结算前平（仅 24h）：默认关
 }
 
 

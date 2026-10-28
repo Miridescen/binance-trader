@@ -2,15 +2,16 @@
 24h 周期实盘策略（子账号 · batch 隔离 + 组内 +65U 提前平仓，5x 仓位）。
 
 与 real_trade_8h.py 逻辑完全一致，仅周期/阈值/开仓时刻/数据表不同：
-  - 每天 1 个开仓周期：00:30，持仓 24h
+  - 每天 1 个开仓周期：00:30，持仓至次日 00:00 前（WINDOW_HOURS=23.5）
   - 方向：跌幅榜-空（无过滤）TOP10（复用 real_trade_4h.select_top10("跌幅榜")）
   - 杠杆 3x，每单保证金 50 USDT（SIZE_MULT=5），名义 150 USDT
   - 平仓（batch 隔离）：
       · 每个 batch =（open_anchor, side）一组 ~10 单，用 DB 记录的 entry_price + 实时标记价
         自行计算“合计浮盈”（税前，和虚拟盘 _calc_pnl 一致），互不干扰
       · 合计浮盈 ≥ +65U（归一 +13）→ 整组立即市价平仓（close_reason 仍记为 组内+10u，作“组内提前止盈”类别标签）
-      · 到 24h 窗口末（open_anchor+24h 前 10 分钟起）仍没触发 → 定时平仓
-        （限价 ladder + 市价兜底，close_reason=24h_timed）
+      · 到窗口末（open_anchor+23.5h = 次日 00:00）仍没触发 → 定时平仓：23:52 起限价 ladder、23:56 市价兜底，
+        赶在 00:00 资金费结算前清仓（限价 ladder + 市价兜底，close_reason 仍记 24h_timed）
+      · 结算前平（开关 PRESETTLE_KEY，默认关）：0/8/16 点结算前 5 分钟，本次预测费率 ≤ -0.30%/8h 的腿不论盈亏单独市价平（close_reason=结算前平）
       · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（3×每单保证金=150U）→ 整组立即市价平（close_reason=止损）
   - 数据：open_log_24h 表（独立于 8h，避免 8h 进程误管 24h 仓），成交后回填真实 commission / funding_fee
 
@@ -31,7 +32,7 @@ import logging
 from datetime import datetime, timedelta
 
 from binance_client import (
-    auth_get, auth_post, get_exchange_info, get_mark_price, get_all_mark_prices,
+    auth_get, auth_post, get_exchange_info, get_mark_price, get_all_mark_prices, get_all_funding_rates,
 )
 # 复用 4h 实盘里已经过实盘验证的下单/撤单/精度/选币原语
 from real_trade_4h import (
@@ -60,17 +61,22 @@ LIVE = os.environ.get("REAL_24H_LIVE") == "1"
 
 SWITCH_KEY   = "real_24h"      # 自动开单开关标识（看板可切换；关闭仅跳过开新仓，监控/平仓照常）
 STOPLOSS_KEY = "stoploss_24h"  # 组内止损开关标识（看板可切换；默认关，见 db.SWITCH_DEFAULTS）
+PRESETTLE_KEY = "presettle_24h" # 结算前平开关标识（看板可切换；默认关）：结算点前 5 分钟，预测费率 ≤ PRESETTLE_RATE 的腿单独市价平
 
 # ── 策略参数 ──
-WINDOW_HOURS      = 24
+WINDOW_HOURS      = 23.5                 # 窗口末=次日 00:00（原 24h→00:30）：定时平在 00:00 资金费结算前完成（A，见 CHANGELOG 2026-10-28）
 TARGET_GROUP_PNL  = 65.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（5x 仓位；2026-09-09 由 50 调至 65＝归一 +13，依据扣费阈值扫描，见 CHANGELOG）
 STOP_LOSS_PNL     = 3 * MARGIN_PER_POS * SIZE_MULT   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（3×每单保证金 = 150U ≈ 名义 10%；受 STOPLOSS_KEY 开关控制）
 _last_sl_on       = None                # 止损开关上一次读到的状态，仅用于在切换时打一条日志
+PRESETTLE_RATE    = -0.30               # 结算前平阈值：该币本次预测资金费率 ≤ -0.30%/8h（回测 24h：≤-0.30% 且不论盈亏为最优，见 CHANGELOG）
+PRESETTLE_LEAD_MIN = 5                  # 结算点（北京 0/8/16 点整）前 N 分钟内检查
+_last_ps_on       = None                # 结算前平开关上一次状态，切换时打一条日志
+_presettle_done   = set()               # (结算点, 行id) 已处理：每腿每个结算点只尝试一次
 OPEN_HOURS        = (0,)                 # 开仓整点：每天 00:30
 OPEN_MINUTE       = 30
 OPEN_WINDOW_MIN   = 5                     # 开仓滑动窗口（幂等）
-CLOSE_PREP_MIN    = 10                    # 窗口末前 N 分钟开始挂限价平
-CLOSE_MARKET_MIN  = 1                     # 窗口末前 N 分钟市价兜底
+CLOSE_PREP_MIN    = 8                     # 窗口末前 N 分钟开始挂限价平（23:52）
+CLOSE_MARKET_MIN  = 4                     # 窗口末前 N 分钟市价兜底（23:56；结算以 00:00:00 持仓为准，留足余量）
 CHECK_INTERVAL    = 30                    # 主循环 / 监控节奏（秒）
 SETTLE_DELAY_SEC  = 12                    # 平仓后等几秒再查账单回填
 
@@ -593,6 +599,54 @@ def check_force_close():
             log.error(f"[一键平仓] 平 {side} @ {anchor} 异常：{e}", exc_info=True)
 
 
+# ── 结算前平（开关 PRESETTLE_KEY）──
+
+def _next_settlement(now: datetime) -> datetime:
+    """下一个资金费结算点（北京时间 0 / 8 / 16 点整）。"""
+    h = ((now.hour // 8) + 1) * 8
+    base = now.replace(minute=0, second=0, microsecond=0)
+    return base.replace(hour=h % 24) + timedelta(days=1 if h >= 24 else 0)
+
+
+def check_presettle(now: datetime):
+    """结算点前 PRESETTLE_LEAD_MIN 分钟内：对本次预测费率 ≤ PRESETTLE_RATE 的持仓腿，不论盈亏单独市价平，躲掉这笔资金费。
+    回测（CHANGELOG 2026-10-28）：只看费率、不看盈亏才成立——费率深负的币里，在赚的腿还在往下砸、在亏的腿正被逼空，
+    两者相抵放弃价差≈0，躲掉的资金费是净赚；若只平没亏的腿反而亏。每腿每个结算点只尝试一次；平仓/清扫/回填复用 close_batch。"""
+    global _last_ps_on, _presettle_done
+    on = db.get_switch(PRESETTLE_KEY)
+    if on != _last_ps_on:
+        log.info(f"[结算前平开关] {'开启' if on else '关闭'}（结算前 {PRESETTLE_LEAD_MIN} 分钟，预测费率 ≤ {PRESETTLE_RATE:.2f}%/8h 的腿单独市价平）")
+        _last_ps_on = on
+    if not on or not LIVE:
+        return
+    s = _next_settlement(now)
+    lead = s - now
+    if not (timedelta(minutes=1) <= lead <= timedelta(minutes=PRESETTLE_LEAD_MIN)):
+        return
+    slot = s.strftime("%Y-%m-%d %H:%M")
+    _presettle_done = {x for x in _presettle_done if x[0] == slot}   # 只保留当前结算点的记录
+    rows = [r for r in db.get_open_log_24h_unclosed() if (slot, r["id"]) not in _presettle_done]
+    if not rows:
+        return
+    try:
+        rates = get_all_funding_rates()   # {symbol: lastFundingRate(小数)} = 本次结算的预测费率
+    except Exception as e:
+        log.warning(f"[结算前平] 取预测费率失败，下一轮重试：{e}")
+        return
+    to_close = []
+    for r in rows:
+        _presettle_done.add((slot, r["id"]))
+        fr = rates.get(r["symbol"])
+        if fr is None:
+            continue
+        pct = fr * 100
+        if pct <= PRESETTLE_RATE:
+            log.info(f"[结算前平] {r['symbol']}#{r['id']} 预测费率 {pct:+.3f}%/8h ≤ {PRESETTLE_RATE:.2f}% → 市价平（结算 {slot}）")
+            to_close.append(r)
+    if to_close:
+        close_batch(to_close, reason="结算前平", market_now=True)
+
+
 # ── 主循环 ──
 
 def _is_in_open_window(now: datetime) -> bool:
@@ -611,7 +665,9 @@ def main():
         log.warning("★ 观察模式（未设 REAL_24H_LIVE=1）：只选币/打印/计算，不下真单、不写库")
     log.info(f"  开仓：每天 {OPEN_HOURS} 点 {OPEN_MINUTE} 分")
     log.info(f"  方向：{[d[0] for d in DIRECTIONS]}，各 TOP{TOP_N}")
-    log.info(f"  平仓：组内浮盈 ≥ {TARGET_GROUP_PNL}U 提前市价平，否则跑满 {WINDOW_HOURS}h 定时平")
+    log.info(f"  平仓：组内浮盈 ≥ {TARGET_GROUP_PNL}U 提前市价平，否则窗口末定时平")
+    log.info(f"  收尾：窗口末=开仓+{WINDOW_HOURS}h（次日 00:00 结算前），前 {CLOSE_PREP_MIN} 分钟起限价 ladder，前 {CLOSE_MARKET_MIN} 分钟市价兜底")
+    log.info(f"  结算前平：开关={'开' if db.get_switch(PRESETTLE_KEY) else '关'}  结算前 {PRESETTLE_LEAD_MIN} 分钟，预测费率 ≤ {PRESETTLE_RATE:.2f}%/8h 的腿单独市价平（close_reason=结算前平）")
     log.info(f"  止损：开关={'开' if db.get_switch(STOPLOSS_KEY) else '关'}  组内合计浮盈 ≤ -{STOP_LOSS_PNL:.0f}U → 整组市价平（看板可切，close_reason=止损）")
     log.info(f"  参数：{LEVERAGE}x  {MARGIN_PER_POS*SIZE_MULT}U/单  名义 {NOTIONAL}U（×{SIZE_MULT} 放大）")
 
@@ -624,6 +680,11 @@ def main():
                 check_force_close()
             except Exception as e:
                 log.error(f"一键平仓检查异常：{e}", exc_info=True)
+            # 0b) 结算前平（开关；结算点前 5 分钟内）
+            try:
+                check_presettle(now)
+            except Exception as e:
+                log.error(f"结算前平检查异常：{e}", exc_info=True)
             # 1) 开仓窗口 XX:30 ~ XX:34
             if _is_in_open_window(now):
                 anchor = _open_anchor_of(now)

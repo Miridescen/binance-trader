@@ -125,7 +125,7 @@ function SwitchChip({ label, checked, disabled, onChange, alert }) {
 }
 
 // ── 账户头卡：名称 + 策略说明 + 开关 + 余额/保证金/浮盈 ──
-function AccountHeader({ tag, tagTone, name, note, rt, switches, switchesLoaded, toggleSwitch, switchKey, slKey, slLabel }) {
+function AccountHeader({ tag, tagTone, name, note, rt, switches, switchesLoaded, toggleSwitch, switchKey, slKey, slLabel, psKey, psLabel }) {
   const configured = rt?.configured !== false
   const hasError = configured && rt?.error
   const positions = rt?.positions || []
@@ -143,6 +143,10 @@ function AccountHeader({ tag, tagTone, name, note, rt, switches, switchesLoaded,
             alert={switches[switchKey] === false} onChange={v => toggleSwitch(switchKey, v, 'open')} />
           <SwitchChip label={slLabel} checked={switches[slKey] === true} disabled={!switchesLoaded}
             alert={switches[slKey] === true} onChange={v => toggleSwitch(slKey, v, 'sl')} />
+          {psKey && (
+            <SwitchChip label={psLabel} checked={switches[psKey] === true} disabled={!switchesLoaded}
+              alert={switches[psKey] === true} onChange={v => toggleSwitch(psKey, v, 'ps')} />
+          )}
         </>
       }
     >
@@ -260,7 +264,7 @@ export default function Dashboard() {
   const [updatedRt, setUpdatedRt] = useState(null)
   const [timeFilter, setTimeFilter] = useState('all') // 8h 按时段筛选
   // 开关：real_* 自动开单（默认开）；stoploss_* 组内止损（默认关）。真值以 /api/switches 为准
-  const [switches, setSwitches] = useState({ real_8h: true, real_24h: true, stoploss_8h: false, stoploss_24h: false })
+  const [switches, setSwitches] = useState({ real_8h: true, real_24h: true, stoploss_8h: false, stoploss_24h: false, presettle_24h: false })
   const [switchesLoaded, setSwitchesLoaded] = useState(false) // 首次成功拉到 /api/switches 前，开关灰掉，不把挂载默认值当真相展示
 
   const fetchAll = async () => {
@@ -295,6 +299,9 @@ export default function Dashboard() {
       if (kind === 'sl') {
         if (val) message.warning('已开启组内止损：合计浮亏触及阈值时自动整组市价平仓（约 30 秒内生效）')
         else message.info('已关闭组内止损')
+      } else if (kind === 'ps') {
+        if (val) message.warning('已开启结算前平：0/8/16 点结算前 5 分钟，预测费率 ≤ −0.30% 的币单独市价平（不看盈亏）')
+        else message.info('已关闭结算前平')
       } else {
         if (val) message.success('已开启自动开单：下个周期恢复开仓')
         else message.info('已关闭自动开单：下个周期不再开新仓（已有持仓的监控/平仓照常）')
@@ -356,8 +363,9 @@ export default function Dashboard() {
         <Col xs={24} lg={12}>
           <div className="panel-stack">
             <AccountHeader tag="子账号2" tagTone="purple" name="24h 实盘" rt={rt24}
-              note="组内 +65U 提前平，否则跑满 24h（5x）"
-              switchKey="real_24h" slKey="stoploss_24h" slLabel="止损 −150U" {...switchProps} />
+              note="组内 +65U 提前平，否则 23:56 前定时平（00:00 结算前清仓，5x）"
+              switchKey="real_24h" slKey="stoploss_24h" slLabel="止损 −150U"
+              psKey="presettle_24h" psLabel="结算前平 ≤−0.30%" {...switchProps} />
             <PositionsBlock rt={rt24} strategyKey="real_24h" accountLabel="子账号2 · 24h" />
             <BatchBlock batches={loserBatches24} netPnl={net24} loading={loadingLog} />
           </div>
