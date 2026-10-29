@@ -350,7 +350,7 @@ export default function Dashboard() {
         <Col xs={24} lg={12}>
           <div className="panel-stack">
             <AccountHeader tag="子账号1" tagTone="blue" name="8h 实盘" rt={rt}
-              note="组内 +16U 提前平，否则跑满 8h"
+              note="组内 +16U 提前平，否则 :56 前定时平（结算前清仓）"
               switchKey="real_8h" slKey="stoploss_8h" slLabel="止损 −30U" {...switchProps} />
             <PositionsBlock rt={rt} strategyKey="real_8h" accountLabel="子账号1 · 8h" />
             <BatchBlock batches={loserBatches8} netPnl={net8} loading={loadingLog}

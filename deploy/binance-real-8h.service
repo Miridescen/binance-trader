@@ -1,5 +1,5 @@
 [Unit]
-Description=8h 周期实盘策略（跌幅榜-空 无过滤，batch 隔离，组内 +10U 提前平 / 否则跑满 8h）
+Description=8h 周期实盘策略（跌幅榜-空 无过滤，batch 隔离，组内 +16U 提前平 / 否则 :56 前定时平、结算前清仓）
 After=network.target
 Wants=network-online.target
 

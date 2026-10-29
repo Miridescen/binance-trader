@@ -2,7 +2,7 @@
 8h 周期实盘策略（batch 隔离 + 组内 +16U 提前平仓）。
 
 规则：
-  - 每天 3 个开仓周期：00:30 / 08:30 / 16:30
+  - 每天 3 个开仓周期：00:30 / 08:30 / 16:30，各持仓至下一个结算点前（WINDOW_HOURS=7.5）
   - 方向：跌幅榜-空（无过滤）TOP10（= 虚拟盘 8h 跌幅空无过滤选股逻辑）
     · 选币复用 real_trade_4h.select_top10("跌幅榜")：24h 量 ≥ 1000 万 U，按涨跌幅升序取最末 10 个做空
   - 杠杆 3x，每单保证金 10 USDT，名义 30 USDT
@@ -10,8 +10,8 @@
       · 每个 batch =（open_anchor, side）一组 ~10 单，用 DB 记录的 entry_price + 实时标记价
         自行计算“合计浮盈”（税前，和虚拟盘 _calc_pnl 一致），互不干扰
       · 合计浮盈 ≥ +16U → 整组立即市价平仓（close_reason 仍记为 组内+10u，作为“组内提前止盈”类别标签，兼容看板/统计）
-      · 到 8h 窗口末（open_anchor+8h 前 10 分钟起）仍没触发 → 定时平仓
-        （限价 ladder + 市价兜底，close_reason=8h_timed）
+      · 到窗口末（open_anchor+7.5h = 下一个资金费结算点 08:00/16:00/00:00）仍没触发 → 定时平仓：
+        :52 起限价 ladder、:56 市价兜底，赶在结算前清仓（限价 ladder + 市价兜底，close_reason=8h_timed）
       · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（3×每单保证金=30U）→ 整组立即市价平（close_reason=止损）
   - 数据：open_log_8h 表，成交后回填真实 commission / funding_fee
 
@@ -57,15 +57,15 @@ SWITCH_KEY   = "real_8h"      # 自动开单开关标识（看板可切换；关
 STOPLOSS_KEY = "stoploss_8h"  # 组内止损开关标识（看板可切换；默认关，见 db.SWITCH_DEFAULTS）
 
 # ── 策略参数 ──
-WINDOW_HOURS      = 8
+WINDOW_HOURS      = 7.5                  # 窗口末=下一个结算点 08:00/16:00/00:00（原 8h→:30）：定时平在资金费结算前完成（A，见 CHANGELOG 2026-10-29）
 TARGET_GROUP_PNL  = 16.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（2026-07 由 10 调至 16，见 CHANGELOG）
 STOP_LOSS_PNL     = 3 * MARGIN_PER_POS   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（3×每单保证金 = 30U ≈ 名义 10%；受 STOPLOSS_KEY 开关控制）
 _last_sl_on       = None                # 止损开关上一次读到的状态，仅用于在切换时打一条日志
 OPEN_HOURS        = (0, 8, 16)           # 开仓整点
 OPEN_MINUTE       = 30
 OPEN_WINDOW_MIN   = 5                     # 开仓滑动窗口（幂等）
-CLOSE_PREP_MIN    = 10                    # 窗口末前 N 分钟开始挂限价平
-CLOSE_MARKET_MIN  = 1                     # 窗口末前 N 分钟市价兜底
+CLOSE_PREP_MIN    = 8                     # 窗口末前 N 分钟开始挂限价平（:52）
+CLOSE_MARKET_MIN  = 4                     # 窗口末前 N 分钟市价兜底（:56；结算以 :00:00 持仓为准，留足余量）
 CHECK_INTERVAL    = 30                    # 主循环 / 监控节奏（秒）
 SETTLE_DELAY_SEC  = 12                    # 平仓后等几秒再查账单回填
 
@@ -606,7 +606,8 @@ def main():
         log.warning("★ 观察模式（未设 REAL_8H_LIVE=1）：只选币/打印/计算，不下真单、不写库")
     log.info(f"  开仓：每天 {OPEN_HOURS} 点 {OPEN_MINUTE} 分")
     log.info(f"  方向：{[d[0] for d in DIRECTIONS]}，各 TOP{TOP_N}")
-    log.info(f"  平仓：组内浮盈 ≥ {TARGET_GROUP_PNL}U 提前市价平，否则跑满 {WINDOW_HOURS}h 定时平")
+    log.info(f"  平仓：组内浮盈 ≥ {TARGET_GROUP_PNL}U 提前市价平，否则窗口末定时平")
+    log.info(f"  收尾：窗口末=开仓+{WINDOW_HOURS}h（下一个结算点前），前 {CLOSE_PREP_MIN} 分钟起限价 ladder，前 {CLOSE_MARKET_MIN} 分钟市价兜底")
     log.info(f"  止损：开关={'开' if db.get_switch(STOPLOSS_KEY) else '关'}  组内合计浮盈 ≤ -{STOP_LOSS_PNL:.0f}U → 整组市价平（看板可切，close_reason=止损）")
     log.info(f"  参数：{LEVERAGE}x  {MARGIN_PER_POS}U/单  名义 {MARGIN_PER_POS*LEVERAGE}U")
 
