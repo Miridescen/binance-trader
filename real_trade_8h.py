@@ -1,5 +1,5 @@
 """
-8h 周期实盘策略（batch 隔离 + 组内 +16U 提前平仓）。
+8h 周期实盘策略（batch 隔离 + 组内 +10U 提前平仓）。
 
 规则：
   - 每天 3 个开仓周期：00:30 / 08:30 / 16:30，各持仓至下一个结算点前（WINDOW_HOURS=7.5）
@@ -9,10 +9,10 @@
   - 平仓（batch 隔离）：
       · 每个 batch =（open_anchor, side）一组 ~10 单，用 DB 记录的 entry_price + 实时标记价
         自行计算“合计浮盈”（税前，和虚拟盘 _calc_pnl 一致），互不干扰
-      · 合计浮盈 ≥ +16U → 整组立即市价平仓（close_reason 仍记为 组内+10u，作为“组内提前止盈”类别标签，兼容看板/统计）
+      · 合计浮盈 ≥ +10U → 整组立即市价平仓（close_reason=组内+10u）
       · 到窗口末（open_anchor+7.5h = 下一个资金费结算点 08:00/16:00/00:00）仍没触发 → 定时平仓：
         :52 起限价 ladder、:56 市价兜底，赶在结算前清仓（限价 ladder + 市价兜底，close_reason=8h_timed）
-      · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（3×每单保证金=30U）→ 整组立即市价平（close_reason=止损）
+      · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（2×每单保证金=20U）→ 整组立即市价平（close_reason=止损）
   - 数据：open_log_8h 表，成交后回填真实 commission / funding_fee
 
 安全开关：
@@ -58,8 +58,8 @@ STOPLOSS_KEY = "stoploss_8h"  # 组内止损开关标识（看板可切换；默
 
 # ── 策略参数 ──
 WINDOW_HOURS      = 7.5                  # 窗口末=下一个结算点 08:00/16:00/00:00（原 8h→:30）：定时平在资金费结算前完成（A，见 CHANGELOG 2026-10-29）
-TARGET_GROUP_PNL  = 16.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（2026-07 由 10 调至 16，见 CHANGELOG）
-STOP_LOSS_PNL     = 3 * MARGIN_PER_POS   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（3×每单保证金 = 30U ≈ 名义 10%；受 STOPLOSS_KEY 开关控制）
+TARGET_GROUP_PNL  = 10.0                 # 组内合计浮盈 ≥ 此值 → 整组提前市价平（2026-11 回测后由 16 调回 10）
+STOP_LOSS_PNL     = 2 * MARGIN_PER_POS   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（2×每单保证金 = 20U；受 STOPLOSS_KEY 开关控制）
 _last_sl_on       = None                # 止损开关上一次读到的状态，仅用于在切换时打一条日志
 OPEN_HOURS        = (0, 8, 16)           # 开仓整点
 OPEN_MINUTE       = 30
@@ -568,7 +568,7 @@ def monitor_batches():
 
 def check_force_close():
     """取走看板的一键平仓请求：把当前所有未平 batch 用市价整组平掉，reason=一键平仓。
-    复用 close_batch（市价平 → 残余清扫 → 临时标记 → 回填），与 +16U/定时平同一套收尾。"""
+    复用 close_batch（市价平 → 残余清扫 → 临时标记 → 回填），与 +10U/定时平同一套收尾。"""
     if not LIVE:
         return
     if not db.pop_force_close(SWITCH_KEY):
