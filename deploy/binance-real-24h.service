@@ -11,10 +11,10 @@ WorkingDirectory=/root/binance-trader
 #   binance_client 的 load_dotenv(override=False) 不覆盖已存在的环境变量，
 #   故本进程走子账号，其余服务照旧走 .env 主账号。
 EnvironmentFile=/root/binance-trader/.env.sub24h
-# ★ 实盘开关：先保持注释＝观察模式（只选币/打印/算浮盈，不下单不写库）。
-#   在服务器上核对无误、且确认读到的是子账号余额后，取消下一行注释再
-#   systemctl daemon-reload && systemctl restart binance-real-24h
-# Environment=REAL_24H_LIVE=1
+# ★ 实盘开关：有这一行＝真实下单（线上自 2026-08 起即为实盘，本文件与线上保持一致，
+#   覆盖部署不会把实盘悄悄降级成观察模式）。新装机想先跑观察模式（只选币/打印/算浮盈，
+#   不下单不写库），把下一行注释掉再 systemctl daemon-reload && systemctl restart binance-real-24h
+Environment=REAL_24H_LIVE=1
 ExecStart=/usr/bin/python3 /root/binance-trader/real_trade_24h.py
 Restart=always
 RestartSec=30
