@@ -1,5 +1,5 @@
 [Unit]
-Description=24h 周期实盘策略（子账号2，跌幅榜-空 无过滤，batch 隔离，7x，组内 +91U 提前平 / 否则 23:56 前定时平、结算前清仓）
+Description=24h 周期实盘策略（子账号2，跌幅榜-空 无过滤，batch 隔离，15x 仓位，组内 +195U 提前平 / 否则 23:56 前定时平、结算前清仓）
 After=network.target
 Wants=network-online.target
 

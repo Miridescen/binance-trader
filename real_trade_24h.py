@@ -1,18 +1,18 @@
 """
-24h 周期实盘策略（子账号 · batch 隔离 + 组内 +91U 提前平仓，7x 仓位）。
+24h 周期实盘策略（子账号 · batch 隔离 + 组内 +195U 提前平仓，15x 仓位）。
 
 与 real_trade_8h.py 逻辑完全一致，仅周期/阈值/开仓时刻/数据表不同：
   - 每天 1 个开仓周期：00:30，持仓至次日 00:00 前（WINDOW_HOURS=23.5）
   - 方向：跌幅榜-空（无过滤）TOP10（复用 real_trade_4h.select_top10("跌幅榜")）
-  - 杠杆 3x，每单保证金 70 USDT（SIZE_MULT=7），名义 210 USDT
+  - 杠杆 3x，每单保证金 150 USDT（SIZE_MULT=15），名义 450 USDT
   - 平仓（batch 隔离）：
       · 每个 batch =（open_anchor, side）一组 ~10 单，用 DB 记录的 entry_price + 实时标记价
         自行计算“合计浮盈”（税前，和虚拟盘 _calc_pnl 一致），互不干扰
-      · 合计浮盈 ≥ +91U（归一 +13 × SIZE_MULT）→ 整组立即市价平仓（close_reason 仍记为 组内+10u，作“组内提前止盈”类别标签）
+      · 合计浮盈 ≥ +195U（归一 +13 × SIZE_MULT）→ 整组立即市价平仓（close_reason 仍记为 组内+10u，作“组内提前止盈”类别标签）
       · 到窗口末（open_anchor+23.5h = 次日 00:00）仍没触发 → 定时平仓：23:52 起限价 ladder、23:56 市价兜底，
         赶在 00:00 资金费结算前清仓（限价 ladder + 市价兜底，close_reason 仍记 24h_timed）
       · 结算前平（开关 PRESETTLE_KEY，默认关）：0/8/16 点结算前 5 分钟，本次预测费率 ≤ -0.30%/8h 的腿不论盈亏单独市价平（close_reason=结算前平）
-      · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（归一 −26 × SIZE_MULT = 182U）→ 整组立即市价平（close_reason=止损）
+      · 组内止损（开关 STOPLOSS_KEY，默认关）：合计浮盈 ≤ -STOP_LOSS_PNL（归一 −26 × SIZE_MULT = 390U）→ 整组立即市价平（close_reason=止损）
   - 数据：open_log_24h 表（独立于 8h，避免 8h 进程误管 24h 仓），成交后回填真实 commission / funding_fee
 
 账户隔离：
@@ -46,8 +46,8 @@ from real_trade_4h import (
     ATTEMPT_INTERVAL_SEC, MAX_LIMIT_ATTEMPTS,
 )
 
-SIZE_MULT = 7                                       # 子账号2 开仓数量放大倍数（相对基准 10U/单；2026-11-12 由 5 调至 7，见 CHANGELOG）
-NOTIONAL  = MARGIN_PER_POS * LEVERAGE * SIZE_MULT    # 每单目标名义价值（210U = 70U 保证金 × 3x）
+SIZE_MULT = 15                                      # 子账号2 开仓数量放大倍数（相对基准 10U/单；2026-11-14 由 7 调至 15，见 CHANGELOG）
+NOTIONAL  = MARGIN_PER_POS * LEVERAGE * SIZE_MULT    # 每单目标名义价值（450U = 150U 保证金 × 3x）
 import db
 
 logging.basicConfig(
@@ -67,8 +67,8 @@ PRESETTLE_KEY = "presettle_24h" # 结算前平开关标识（看板可切换；�
 WINDOW_HOURS      = 23.5                 # 窗口末=次日 00:00（原 24h→00:30）：定时平在 00:00 资金费结算前完成（A，见 CHANGELOG 2026-10-28）
 TP_PER_UNIT       = 13.0                 # 归一止盈线：每 1 倍仓位（10 单 × 30U 名义）对应的组内合计浮盈（2026-09-09 由 +10 调至 +13，依据扣费阈值扫描，见 CHANGELOG）
 SL_PER_UNIT       = 26.0                 # 归一止损线：每 1 倍仓位对应的组内合计浮亏（2026-11-12 由 30 收紧到 26，≈ 名义 8.7%，见 CHANGELOG）
-TARGET_GROUP_PNL  = TP_PER_UNIT * SIZE_MULT   # 组内合计浮盈 ≥ 此值 → 整组提前市价平（7x = +91U；随 SIZE_MULT 自动缩放，改倍数不必再手改）
-STOP_LOSS_PNL     = SL_PER_UNIT * SIZE_MULT   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（7x = 182U ≈ 名义 8.7%；受 STOPLOSS_KEY 开关控制）
+TARGET_GROUP_PNL  = TP_PER_UNIT * SIZE_MULT   # 组内合计浮盈 ≥ 此值 → 整组提前市价平（15x = +195U；随 SIZE_MULT 自动缩放，改倍数不必再手改）
+STOP_LOSS_PNL     = SL_PER_UNIT * SIZE_MULT   # 组内止损：合计浮亏 ≤ -此值 → 整组市价平（15x = 390U ≈ 名义 8.7%；受 STOPLOSS_KEY 开关控制）
 _last_sl_on       = None                # 止损开关上一次读到的状态，仅用于在切换时打一条日志
 PRESETTLE_RATE    = -0.30               # 结算前平阈值：该币本次预测资金费率 ≤ -0.30%/8h（回测 24h：≤-0.30% 且不论盈亏为最优，见 CHANGELOG）
 PRESETTLE_LEAD_MIN = 5                  # 结算点（北京 0/8/16 点整）前 N 分钟内检查
